@@ -98,14 +98,32 @@ the pre-dispatch ensure. Default: enabled.
 - The auto-spawned worker inherits the master's (or client's) environment.
   A master auto-started from the user's shell carries the user's PATH — the
   normal local case. A systemd/nohup master with a minimal PATH may spawn a
-  worker that cannot find agent CLIs; explicit `orch worker start` from a
-  login shell remains the documented override, and the existing
-  `agent not available: <cli> (worker <id>, host <host>)` failure stays the
-  observable symptom with the evaluating worker identified.
+  worker that cannot find or execute agent CLIs. At worker startup, orch probes
+  every known adapter and logs a stable availability map plus the inherited
+  PATH. A failed run identifies the evaluating worker and reports the exact
+  probe command, exit status or lookup failure, and PATH, so the deciding
+  worker environment is immediately diagnosable. Explicit `orch worker start`
+  from an environment with the intended PATH remains the operator override.
 - "worker not running" disappears as a user-visible error class on
   single-machine setups; docs and the embedded tutorial shrink accordingly.
 - The reconciler runs strictly inside the lease-failure path: zero cost when
   workers are healthy, no background polling, no new periodic loop.
+
+### Environment normalization decision (2026-07-13)
+
+The worker does **not** synthesize a login-shell environment or rewrite PATH at
+spawn. It continues to inherit the environment of the process that launches
+it.
+
+Running a login shell is not a portable normalization rule: shell selection and
+startup-file semantics differ across platforms, startup files can have
+interactive side effects, and a service manager may intentionally constrain
+PATH. Rewriting the environment would also make the startup probe describe a
+different execution context from the one that launches agents. The invariant
+is therefore: **probe and agent launch observe the same inherited environment**.
+Operators configure PATH explicitly in their service/automation launcher, or
+restart the managed worker from the intended shell environment; orch exposes
+the mismatch rather than silently changing it.
 
 ## Alternatives considered
 

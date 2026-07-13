@@ -307,8 +307,9 @@ func createMultiplexerSession(orchDir, projectRoot string, agentType agent.Agent
 		return fmt.Errorf("failed to get adapter: %w", err)
 	}
 
-	if !adapter.IsAvailable() {
-		return fmt.Errorf("%s CLI is not available", agentType)
+	availability := adapter.ProbeAvailability()
+	if !availability.Available {
+		return fmt.Errorf("agent not available: %s (%s)", agentType, availability.Diagnostic())
 	}
 
 	issuesRoot, err := getIssuesRootForProjectIfConfigured(projectRoot)

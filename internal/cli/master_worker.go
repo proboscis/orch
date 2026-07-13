@@ -15,6 +15,7 @@ var requireDaemonForWorker = func() (worker.Client, error) {
 	return requireDaemon()
 }
 var runExternalWorkerLoop = worker.RunExternalLoop
+var logWorkerAgentAvailability = worker.LogAgentAvailability
 
 func newMasterCmd() *cobra.Command {
 	cmd := newDaemonCmd()
@@ -58,6 +59,7 @@ func newWorkerRunCmd() *cobra.Command {
 		Short: "Run long-lived orch-worker host loop",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			worker.ScrubInheritedMultiplexerEnv()
+			logWorkerAgentAvailability(workerID)
 
 			client, err := requireDaemonForWorker()
 			if err != nil {

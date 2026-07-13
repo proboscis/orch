@@ -170,8 +170,8 @@ type Adapter interface {
 	// ExtraEnv returns agent-specific environment variables to inject at launch.
 	ExtraEnv() []string
 
-	// IsAvailable checks if the agent CLI is available
-	IsAvailable() bool
+	// ProbeAvailability checks the agent CLI and retains the exact probe result.
+	ProbeAvailability() Availability
 
 	// PromptInjection returns how the prompt should be sent to the agent
 	// Default implementations should return InjectionArg

@@ -17,8 +17,12 @@ func (a *OpenCodeAdapter) Type() AgentType {
 	return AgentOpenCode
 }
 
-func (a *OpenCodeAdapter) IsAvailable() bool {
-	return findOpenCodeBinary() != ""
+func (a *OpenCodeAdapter) ProbeAvailability() Availability {
+	binary := findOpenCodeBinary()
+	if binary == "" {
+		return unavailableProbe(AgentOpenCode, "opencode --version", "executable not found in PATH or ~/.opencode/bin")
+	}
+	return probeCommand(AgentOpenCode, binary, "opencode --version", "--version")
 }
 
 func findOpenCodeBinary() string {

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -13,9 +12,8 @@ func (a *CodexAdapter) Type() AgentType {
 	return AgentCodex
 }
 
-func (a *CodexAdapter) IsAvailable() bool {
-	cmd := exec.Command("codex", "--version")
-	return cmd.Run() == nil
+func (a *CodexAdapter) ProbeAvailability() Availability {
+	return probeCommand(AgentCodex, "codex", "codex --version", "--version")
 }
 
 func (a *CodexAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {

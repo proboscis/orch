@@ -5855,7 +5855,7 @@ func TestProtoStartRunFieldMapping(t *testing.T) {
 		// If it fails with "agent not available", that's expected in CI without claude installed.
 		// The key contract test is that Model is NOT in Message.
 		errMsg := resp.Error
-		if errMsg != "agent not available: claude" && errMsg != "no project root available" && !strings.Contains(errMsg, "no active worker on host") {
+		if !strings.Contains(errMsg, "agent not available: claude") && errMsg != "no project root available" && !strings.Contains(errMsg, "no active worker on host") {
 			t.Fatalf("unexpected error: %s", errMsg)
 		}
 	}
@@ -6180,6 +6180,29 @@ func TestProcessStartRunCoreValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("unavailable agent error includes probe exit and PATH", func(t *testing.T) {
+		binDir := t.TempDir()
+		binPath := filepath.Join(binDir, "claude")
+		if err := os.WriteFile(binPath, []byte("#!/bin/sh\nexit 9\n"), 0755); err != nil {
+			t.Fatalf("write fake claude: %v", err)
+		}
+		t.Setenv("PATH", binDir)
+
+		opts := &StartRunOptions{
+			IssueID: "test-issue",
+			Agent:   "claude",
+		}
+		_, err := server.processStartRunCore(st, "", opts)
+		if err == nil {
+			t.Fatal("expected unavailable agent error")
+		}
+		for _, want := range []string{`agent not available: claude`, `probe "claude --version" exited 9`, "PATH=" + binDir} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("processStartRunCore() error = %q, want substring %q", err, want)
+			}
+		}
+	})
+
 	t.Run("uses payload issue snapshot without reading worker store", func(t *testing.T) {
 		// A worker pinned to a different host than the master has no issue store.
 		// The master carries the resolved issue in opts.IssueSnapshot; the worker
@@ -6223,7 +6246,8 @@ func TestLegacyStartRunAvailabilityCheckUsesExecutionTarget(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	t.Chdir(projectRoot)
-	t.Setenv("PATH", t.TempDir())
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	issue := &model.Issue{ID: "availability-check", Title: "availability check"}
@@ -6254,7 +6278,8 @@ func TestLegacyStartRunAvailabilityCheckUsesExecutionTarget(t *testing.T) {
 	if got := run("mac"); !got.OK {
 		t.Fatalf("remote-target dry run failed on master availability check: %s", got.Error)
 	}
-	if got := run("local"); got.OK || got.Error != "agent not available: claude" {
+	wantLocal := fmt.Sprintf(`agent not available: claude (probe "claude --version" failed: exec: "claude": executable file not found in $PATH; PATH=%s)`, binDir)
+	if got := run("local"); got.OK || got.Error != wantLocal {
 		t.Fatalf("local-target response = %+v, want explicit unavailable error", got)
 	}
 }
@@ -6267,7 +6292,11 @@ func TestProcessStartRunCoreAvailabilityErrorNamesEvaluatingWorker(t *testing.T)
 	if err := os.WriteFile(filepath.Join(projectRoot, ".orch", "config.yaml"), []byte("agent: claude\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	t.Setenv("PATH", t.TempDir())
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "claude"), []byte("#!/bin/sh\nexit 9\n"), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	t.Setenv("PATH", binDir)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	server := NewSocketServer(nil, log.New(io.Discard, "", 0))
@@ -6283,7 +6312,7 @@ func TestProcessStartRunCoreAvailabilityErrorNamesEvaluatingWorker(t *testing.T)
 	if err == nil {
 		t.Fatal("processStartRunCore() error = nil, want unavailable agent error")
 	}
-	want := "agent not available: claude (worker host-zeus, host zeus)"
+	want := fmt.Sprintf(`agent not available: claude (worker host-zeus, host zeus; probe "claude --version" exited 9; PATH=%s)`, binDir)
 	if err.Error() != want {
 		t.Fatalf("processStartRunCore() error = %q, want %q", err, want)
 	}
