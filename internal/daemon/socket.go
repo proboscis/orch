@@ -4301,6 +4301,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 
 		info, err := os.Stat(fromRun.WorktreePath)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, restartFromMissingWorktreeError(fromRun)
+			}
 			return nil, fmt.Errorf("worktree not found: %w", err)
 		}
 		if !info.IsDir() {
@@ -4762,7 +4765,11 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 
 		info, err := os.Stat(fromRun.WorktreePath)
 		if err != nil {
-			encoder.Encode(ContinueRunResponse{OK: false, Error: "worktree not found: " + err.Error()})
+			if os.IsNotExist(err) {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: restartFromMissingWorktreeError(fromRun).Error()})
+			} else {
+				encoder.Encode(ContinueRunResponse{OK: false, Error: "worktree not found: " + err.Error()})
+			}
 			return
 		}
 		if !info.IsDir() {
@@ -5020,6 +5027,10 @@ func validateRestartFromStatus(run *model.Run) error {
 	}
 
 	return fmt.Errorf("run %s is %s; 'orch restart-from' only supports failed, canceled, or unknown runs", ref, status)
+}
+
+func restartFromMissingWorktreeError(run *model.Run) error {
+	return fmt.Errorf("worktree %s no longer exists; use restart-from --branch %s to recreate one", run.WorktreePath, run.Branch)
 }
 
 func (s *SocketServer) buildRunPrompt(issue *model.Issue, issuesRoot string, noPR bool, promptTemplate string, prTargetBranch string, runBranch string) string {

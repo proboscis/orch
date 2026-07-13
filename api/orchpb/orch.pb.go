@@ -370,6 +370,8 @@ type Run struct {
 	// agent_session artifact: claude session UUID / codex rollout id.
 	AgentSessionId         string `protobuf:"bytes,33,opt,name=agent_session_id,json=agentSessionId,proto3" json:"agent_session_id,omitempty"`
 	AgentSessionGeneration int32  `protobuf:"varint,34,opt,name=agent_session_generation,json=agentSessionGeneration,proto3" json:"agent_session_generation,omitempty"`
+	SessionState           string `protobuf:"bytes,35,opt,name=session_state,json=sessionState,proto3" json:"session_state,omitempty"`
+	SessionStateDetail     string `protobuf:"bytes,36,opt,name=session_state_detail,json=sessionStateDetail,proto3" json:"session_state_detail,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -640,6 +642,20 @@ func (x *Run) GetAgentSessionGeneration() int32 {
 		return x.AgentSessionGeneration
 	}
 	return 0
+}
+
+func (x *Run) GetSessionState() string {
+	if x != nil {
+		return x.SessionState
+	}
+	return ""
+}
+
+func (x *Run) GetSessionStateDetail() string {
+	if x != nil {
+		return x.SessionStateDetail
+	}
+	return ""
 }
 
 type Issue struct {
@@ -10845,7 +10861,8 @@ const file_orch_proto_rawDesc = "" +
 	"\tadditions\x18\x01 \x01(\x05R\tadditions\x12\x1c\n" +
 	"\tdeletions\x18\x02 \x01(\x05R\tdeletions\x12#\n" +
 	"\rfiles_changed\x18\x03 \x01(\x05R\ffilesChanged\x12\x14\n" +
-	"\x05files\x18\x04 \x03(\tR\x05files\"\xdb\t\n" +
+	"\x05files\x18\x04 \x03(\tR\x05files\"\xb2\n" +
+	"\n" +
 	"\x03Run\x12\x19\n" +
 	"\bissue_id\x18\x01 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12*\n" +
@@ -10886,7 +10903,9 @@ const file_orch_proto_rawDesc = "" +
 	"\x10multiplexer_name\x18\x1f \x01(\tR\x0fmultiplexerName\x120\n" +
 	"\x14branch_state_display\x18  \x01(\tR\x12branchStateDisplay\x12(\n" +
 	"\x10agent_session_id\x18! \x01(\tR\x0eagentSessionId\x128\n" +
-	"\x18agent_session_generation\x18\" \x01(\x05R\x16agentSessionGeneration\"\xb9\x02\n" +
+	"\x18agent_session_generation\x18\" \x01(\x05R\x16agentSessionGeneration\x12#\n" +
+	"\rsession_state\x18# \x01(\tR\fsessionState\x120\n" +
+	"\x14session_state_detail\x18$ \x01(\tR\x12sessionStateDetail\"\xb9\x02\n" +
 	"\x05Issue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x18\n" +
