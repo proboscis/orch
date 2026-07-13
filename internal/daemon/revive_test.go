@@ -18,7 +18,10 @@ import (
 type mockReviveMux struct {
 	hasSession bool
 	newErr     error
+	readyErr   error
 	booted     []*multiplexer.SessionConfig
+	readyWaits []string // "session|pattern"
+	killed     []string
 }
 
 func (m *mockReviveMux) Type() multiplexer.Type { return multiplexer.TypeTmux }
@@ -26,6 +29,14 @@ func (m *mockReviveMux) HasSession(string) bool { return m.hasSession }
 func (m *mockReviveMux) NewSession(cfg *multiplexer.SessionConfig) error {
 	m.booted = append(m.booted, cfg)
 	return m.newErr
+}
+func (m *mockReviveMux) WaitForReady(session, pattern string, _ time.Duration) error {
+	m.readyWaits = append(m.readyWaits, session+"|"+pattern)
+	return m.readyErr
+}
+func (m *mockReviveMux) KillSession(session string) error {
+	m.killed = append(m.killed, session)
+	return nil
 }
 
 // createReapedTestRun builds a run whose CURRENT generation is recorded as
@@ -272,5 +283,47 @@ func TestStepTerminalAbsorbsAllObservationsExceptReviveMilestone(t *testing.T) {
 	_, effects := stepRun(view, runCore{}, runObservation{Kind: obsLaunchProgress, Launch: launchReached(stageSessionRevived)}, time.Now())
 	if len(effects) != 1 || effects[0].Kind != effectSetStatus || effects[0].Status != model.StatusRunning || effects[0].Source != model.EventSourceUser {
 		t.Fatalf("revive milestone on terminal view must yield exactly one user-sourced running commit, got %+v", effects)
+	}
+}
+
+func TestReviveWaitsForResumedREPLBeforeCompleting(t *testing.T) {
+	st, run := createReapedTestRun(t, "claude", true)
+	mux := &mockReviveMux{}
+	withMockReviveMux(t, mux)
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+
+	if _, err := server.reviveIfReaped(st, "project", t.TempDir(), run); err != nil {
+		t.Fatalf("reviveIfReaped() error = %v", err)
+	}
+	session := model.GenerateSessionName(run.IssueID, run.RunID)
+	if len(mux.readyWaits) != 1 || mux.readyWaits[0] != session+"|❯" {
+		t.Fatalf("revive must wait for the claude input prompt before completing, got %v", mux.readyWaits)
+	}
+}
+
+func TestReviveReadyTimeoutCleansUpHalfBootedSession(t *testing.T) {
+	st, run := createReapedTestRun(t, "codex", true)
+	mux := &mockReviveMux{readyErr: fmt.Errorf("pattern not found before timeout")}
+	withMockReviveMux(t, mux)
+	prevResolve := reviveResolveCodexSessionID
+	reviveResolveCodexSessionID = func(string, string, time.Duration) (string, error) { return "conv-8888", nil }
+	t.Cleanup(func() { reviveResolveCodexSessionID = prevResolve })
+	server := NewSocketServer(func(string) (store.Store, error) { return st, nil }, log.New(io.Discard, "", 0))
+
+	_, err := server.reviveIfReaped(st, "project", t.TempDir(), run)
+	if err == nil || !strings.Contains(err.Error(), "never became ready") {
+		t.Fatalf("ready timeout must fail the revive, got %v", err)
+	}
+	session := model.GenerateSessionName(run.IssueID, run.RunID)
+	if len(mux.killed) != 1 || mux.killed[0] != session {
+		t.Fatalf("half-booted session must be cleaned up, killed=%v", mux.killed)
+	}
+	// The ledger must be untouched: the run stays reaped so the next send retries.
+	fresh, err := st.GetRun(run.Ref())
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if !fresh.SessionReaped() || fresh.AgentSessionGeneration != 1 {
+		t.Fatalf("failed revive must leave the latch intact (gen=%d reaped=%v)", fresh.AgentSessionGeneration, fresh.SessionReaped())
 	}
 }

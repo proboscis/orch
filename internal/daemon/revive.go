@@ -33,12 +33,33 @@ var reviveLeaseTimeout = 120 * time.Second
 // identity re-resolution (T1b arm, reused by revive with generation+1).
 var reviveResolveCodexSessionID = agent.ResolveCodexSessionIDWithRetry
 
+// reviveReadyTimeout bounds the post-boot wait for the resumed REPL to render
+// its input prompt. A fresh launch never needs this (the prompt travels as
+// argv), but a revive delivers the pending message via send-keys AFTERWARD —
+// keys typed while the agent is still booting are swallowed by the raw
+// terminal before the REPL exists (measured 2026-07-13, revive-physics.md:
+// the question was visible ABOVE the codex banner as raw echo, never received
+// as input). Variable for tests.
+var reviveReadyTimeout = 60 * time.Second
+
+// reviveReadyPattern is the per-agent REPL input marker to wait for before a
+// revive is considered complete. Measured on the real CLIs (revive-physics.md):
+// claude renders its input line with "❯", codex 0.144 with "›". These are
+// revive-local on purpose — Adapter.ReadyPattern() is the InjectionTmux launch
+// seam and claude/codex are InjectionArg there.
+var reviveReadyPattern = map[agent.AgentType]string{
+	agent.AgentClaude: "❯",
+	agent.AgentCodex:  "›",
+}
+
 // reviveMultiplexer is the slice of multiplexer.Multiplexer revive needs;
 // narrowed for tests.
 type reviveMultiplexer interface {
 	Type() multiplexer.Type
 	HasSession(name string) bool
 	NewSession(cfg *multiplexer.SessionConfig) error
+	WaitForReady(session, pattern string, timeout time.Duration) error
+	KillSession(session string) error
 }
 
 // getReviveMultiplexer is a test seam resolving the run's recorded
@@ -161,6 +182,20 @@ func (s *SocketServer) revivePhysical(run *model.Run, projectRoot string) (*Revi
 		Env:         env,
 	}); err != nil {
 		return nil, fmt.Errorf("revive %s: failed to create session: %w", ref, err)
+	}
+
+	// The pending message is delivered via send-keys AFTER the revive, so the
+	// revive is complete only when the resumed REPL renders its input prompt —
+	// keys typed into a still-booting agent are lost (revive-physics.md). On
+	// timeout, kill the half-booted session so the run's observable state
+	// stays consistent (reaped, no session) and the next send can retry.
+	if pattern := reviveReadyPattern[agentType]; pattern != "" {
+		if err := mux.WaitForReady(sessionName, pattern, reviveReadyTimeout); err != nil {
+			if killErr := mux.KillSession(sessionName); killErr != nil {
+				return nil, fmt.Errorf("revive %s: resumed REPL never became ready (%v) AND cleanup kill failed: %w", ref, err, killErr)
+			}
+			return nil, fmt.Errorf("revive %s: resumed REPL never became ready within %s (session cleaned up; resend to retry): %w", ref, reviveReadyTimeout, err)
+		}
 	}
 
 	result := &ReviveRunResult{
