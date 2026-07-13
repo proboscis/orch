@@ -232,6 +232,8 @@ type Run struct {
 	// codex rollout id, folded from the latest agent_session artifact.
 	AgentSessionID         string
 	AgentSessionGeneration int
+	SessionState           model.SessionState
+	SessionStateDetail     string
 	ContinuedFrom          string
 	DiffStats              *DiffStats
 	BranchState            BranchState

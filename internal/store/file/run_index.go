@@ -10,32 +10,35 @@ import (
 	"time"
 
 	"github.com/proboscis/orch/internal/model"
+	"github.com/proboscis/orch/internal/sessionlifecycle"
 	"github.com/proboscis/orch/internal/store"
 )
 
 type runIndexEntry struct {
-	IssueID           model.IssueID `json:"issue_id"`
-	RunID             model.RunID   `json:"run_id"`
-	Status            model.Status  `json:"status"`
-	Agent             string        `json:"agent,omitempty"`
-	Profile           string        `json:"profile,omitempty"`
-	Target            string        `json:"target,omitempty"`
-	TargetHost        string        `json:"target_host,omitempty"`
-	TargetWorkerID    string        `json:"target_worker_id,omitempty"`
-	Model             string        `json:"model,omitempty"`
-	ModelVariant      string        `json:"model_variant,omitempty"`
-	Branch            string        `json:"branch,omitempty"`
-	WorktreePath      string        `json:"worktree_path,omitempty"`
-	SessionName       string        `json:"session_name,omitempty"`
-	Multiplexer       string        `json:"multiplexer,omitempty"`
-	PRUrl             string        `json:"pr_url,omitempty"`
-	ServerPort        int           `json:"server_port,omitempty"`
-	OpenCodeSessionID string        `json:"opencode_session_id,omitempty"`
-	AgentSessionID    string        `json:"agent_session_id,omitempty"`
-	AgentSessionGen   int           `json:"agent_session_generation,omitempty"`
-	StartedAt         time.Time     `json:"started_at"`
-	UpdatedAt         time.Time     `json:"updated_at"`
-	FileMtime         time.Time     `json:"file_mtime"`
+	IssueID            model.IssueID      `json:"issue_id"`
+	RunID              model.RunID        `json:"run_id"`
+	Status             model.Status       `json:"status"`
+	Agent              string             `json:"agent,omitempty"`
+	Profile            string             `json:"profile,omitempty"`
+	Target             string             `json:"target,omitempty"`
+	TargetHost         string             `json:"target_host,omitempty"`
+	TargetWorkerID     string             `json:"target_worker_id,omitempty"`
+	Model              string             `json:"model,omitempty"`
+	ModelVariant       string             `json:"model_variant,omitempty"`
+	Branch             string             `json:"branch,omitempty"`
+	WorktreePath       string             `json:"worktree_path,omitempty"`
+	SessionName        string             `json:"session_name,omitempty"`
+	Multiplexer        string             `json:"multiplexer,omitempty"`
+	PRUrl              string             `json:"pr_url,omitempty"`
+	ServerPort         int                `json:"server_port,omitempty"`
+	OpenCodeSessionID  string             `json:"opencode_session_id,omitempty"`
+	AgentSessionID     string             `json:"agent_session_id,omitempty"`
+	AgentSessionGen    int                `json:"agent_session_generation,omitempty"`
+	SessionState       model.SessionState `json:"session_state,omitempty"`
+	SessionStateDetail string             `json:"session_state_detail,omitempty"`
+	StartedAt          time.Time          `json:"started_at"`
+	UpdatedAt          time.Time          `json:"updated_at"`
+	FileMtime          time.Time          `json:"file_mtime"`
 }
 
 // UnmarshalJSON implements custom unmarshalling to support both the legacy
@@ -66,7 +69,7 @@ const (
 	// Bump to invalidate persisted indexes whenever runIndexEntry gains a
 	// field: stale entries would otherwise silently serve runs with the new
 	// field empty (the index is the ListRuns source of truth).
-	runIndexVersion  = 5
+	runIndexVersion  = 6
 	runIndexFileName = ".orch_run_index.json"
 )
 
@@ -272,30 +275,33 @@ func (s *FileStore) listRunsIndexed(filter *store.ListRunsFilter) ([]*model.Run,
 				}
 				continue
 			}
+			sessionlifecycle.Apply(run)
 
 			entry := &runIndexEntry{
-				IssueID:           run.IssueID,
-				RunID:             run.RunID,
-				Status:            run.Status,
-				Agent:             run.Agent,
-				Profile:           run.Profile,
-				Target:            run.Target,
-				TargetHost:        run.TargetHost,
-				TargetWorkerID:    run.TargetWorkerID,
-				Model:             run.Model,
-				ModelVariant:      run.ModelVariant,
-				Branch:            run.Branch,
-				WorktreePath:      run.WorktreePath,
-				SessionName:       run.SessionName,
-				Multiplexer:       run.Multiplexer,
-				PRUrl:             run.PRUrl,
-				ServerPort:        run.ServerPort,
-				OpenCodeSessionID: run.OpenCodeSessionID,
-				AgentSessionID:    run.AgentSessionID,
-				AgentSessionGen:   run.AgentSessionGeneration,
-				StartedAt:         run.StartedAt,
-				UpdatedAt:         run.UpdatedAt,
-				FileMtime:         fileMtime,
+				IssueID:            run.IssueID,
+				RunID:              run.RunID,
+				Status:             run.Status,
+				Agent:              run.Agent,
+				Profile:            run.Profile,
+				Target:             run.Target,
+				TargetHost:         run.TargetHost,
+				TargetWorkerID:     run.TargetWorkerID,
+				Model:              run.Model,
+				ModelVariant:       run.ModelVariant,
+				Branch:             run.Branch,
+				WorktreePath:       run.WorktreePath,
+				SessionName:        run.SessionName,
+				Multiplexer:        run.Multiplexer,
+				PRUrl:              run.PRUrl,
+				ServerPort:         run.ServerPort,
+				OpenCodeSessionID:  run.OpenCodeSessionID,
+				AgentSessionID:     run.AgentSessionID,
+				AgentSessionGen:    run.AgentSessionGeneration,
+				SessionState:       run.SessionState,
+				SessionStateDetail: run.SessionStateDetail,
+				StartedAt:          run.StartedAt,
+				UpdatedAt:          run.UpdatedAt,
+				FileMtime:          fileMtime,
 			}
 			if old, exists := idx.Entries[key]; !exists || !runEntryEqual(old, entry) || old.FileMtime.UnixNano() != fileMtime.UnixNano() {
 				indexDirty = true
@@ -383,6 +389,8 @@ func runEntryEqual(a, b *runIndexEntry) bool {
 		a.OpenCodeSessionID == b.OpenCodeSessionID &&
 		a.AgentSessionID == b.AgentSessionID &&
 		a.AgentSessionGen == b.AgentSessionGen &&
+		a.SessionState == b.SessionState &&
+		a.SessionStateDetail == b.SessionStateDetail &&
 		a.StartedAt.Equal(b.StartedAt) &&
 		a.UpdatedAt.Equal(b.UpdatedAt)
 }
@@ -434,6 +442,8 @@ func entryToRun(e *runIndexEntry) *model.Run {
 		OpenCodeSessionID:      e.OpenCodeSessionID,
 		AgentSessionID:         e.AgentSessionID,
 		AgentSessionGeneration: e.AgentSessionGen,
+		SessionState:           e.SessionState,
+		SessionStateDetail:     e.SessionStateDetail,
 		StartedAt:              e.StartedAt,
 		UpdatedAt:              e.UpdatedAt,
 	}

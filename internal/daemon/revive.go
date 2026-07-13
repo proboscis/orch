@@ -8,6 +8,7 @@ import (
 	"github.com/proboscis/orch/internal/agent"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/multiplexer"
+	"github.com/proboscis/orch/internal/sessionlifecycle"
 	"github.com/proboscis/orch/internal/store"
 )
 
@@ -65,28 +66,7 @@ var getReviveMultiplexer = func(run *model.Run) (reviveMultiplexer, error) {
 // session. Filesystem/liveness checks belong to the execution host
 // (revivePhysical), not here.
 func checkRevivePreconditions(run *model.Run) error {
-	if run == nil {
-		return fmt.Errorf("run required")
-	}
-	ref := run.Ref().String()
-	switch run.Agent {
-	case string(agent.AgentClaude), string(agent.AgentCodex):
-	default:
-		return fmt.Errorf("revive is not defined for agent %q (run %s): only claude/codex sessions record a resumable identity — use `orch restart-from --branch` for a fresh session", run.Agent, ref)
-	}
-	if strings.TrimSpace(run.AgentSessionID) == "" {
-		return fmt.Errorf("revive precondition missing for %s: agent_session identity is not recorded — the session cannot be resumed; use `orch restart-from --branch` to continue on a fresh session", ref)
-	}
-	if strings.TrimSpace(run.WorktreePath) == "" {
-		return fmt.Errorf("revive precondition missing for %s: no worktree is recorded — use `orch restart-from --branch`", ref)
-	}
-	if runHasWorktreeRemovedNote(run) {
-		return fmt.Errorf("revive precondition missing for %s: the worktree was removed (worktree_removed note) — use `orch restart-from --branch` to recreate one", ref)
-	}
-	if err := validateReaperMultiplexer(run); err != nil {
-		return err
-	}
-	return nil
+	return sessionlifecycle.CheckRevivePreconditions(run)
 }
 
 // revivePhysical performs the execution-host part of a revive: verify the

@@ -10,6 +10,7 @@ import (
 	"github.com/proboscis/orch/internal/git"
 	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/pr"
+	"github.com/proboscis/orch/internal/sessionlifecycle"
 )
 
 // MonitorConnection tracks a connected monitor instance
@@ -121,43 +122,45 @@ type DiffStatsJSON struct {
 
 // RunSummary is a summary view of a run for list operations
 type RunSummary struct {
-	IssueID           string         `json:"issue_id"`
-	RunID             string         `json:"run_id"`
-	ShortID           string         `json:"short_id"`
-	Status            string         `json:"status"`
-	IsActive          bool           `json:"is_active"`
-	IsTerminal        bool           `json:"is_terminal"`
-	Phase             string         `json:"phase,omitempty"`
-	Agent             string         `json:"agent"`
-	Profile           string         `json:"profile,omitempty"`
-	Model             string         `json:"model,omitempty"`
-	Branch            string         `json:"branch,omitempty"`
-	WorktreePath      string         `json:"worktree_path,omitempty"`
-	Target            string         `json:"target,omitempty"`
-	TargetHost        string         `json:"target_host,omitempty"`
-	SessionName       string         `json:"session_name,omitempty"`
-	Multiplexer       string         `json:"multiplexer,omitempty"`
-	PRUrl             string         `json:"pr_url,omitempty"`
-	PRNumber          int            `json:"pr_number,omitempty"`
-	PRState           string         `json:"pr_state,omitempty"`
-	ServerPort        int            `json:"server_port,omitempty"`
-	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
-	AgentSessionID    string         `json:"agent_session_id,omitempty"`
-	AgentSessionGen   int            `json:"agent_session_generation,omitempty"`
-	IssueStatus       string         `json:"issue_status,omitempty"`
-	IssueTopic        string         `json:"issue_topic,omitempty"`
-	Additions         int            `json:"additions"`
-	Deletions         int            `json:"deletions"`
-	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
-	BranchState       string         `json:"branch_state,omitempty"`
-	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
-	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
-	Alive             bool           `json:"alive"`
-	AliveKnown        bool           `json:"alive_known"`
-	WorktreeExists    bool           `json:"worktree_exists"`
-	StartedAt         string         `json:"started_at"`
-	UpdatedAt         string         `json:"updated_at"`
-	URI               string         `json:"uri"`
+	IssueID            string         `json:"issue_id"`
+	RunID              string         `json:"run_id"`
+	ShortID            string         `json:"short_id"`
+	Status             string         `json:"status"`
+	IsActive           bool           `json:"is_active"`
+	IsTerminal         bool           `json:"is_terminal"`
+	Phase              string         `json:"phase,omitempty"`
+	Agent              string         `json:"agent"`
+	Profile            string         `json:"profile,omitempty"`
+	Model              string         `json:"model,omitempty"`
+	Branch             string         `json:"branch,omitempty"`
+	WorktreePath       string         `json:"worktree_path,omitempty"`
+	Target             string         `json:"target,omitempty"`
+	TargetHost         string         `json:"target_host,omitempty"`
+	SessionName        string         `json:"session_name,omitempty"`
+	Multiplexer        string         `json:"multiplexer,omitempty"`
+	PRUrl              string         `json:"pr_url,omitempty"`
+	PRNumber           int            `json:"pr_number,omitempty"`
+	PRState            string         `json:"pr_state,omitempty"`
+	ServerPort         int            `json:"server_port,omitempty"`
+	OpenCodeSessionID  string         `json:"opencode_session_id,omitempty"`
+	AgentSessionID     string         `json:"agent_session_id,omitempty"`
+	AgentSessionGen    int            `json:"agent_session_generation,omitempty"`
+	SessionState       string         `json:"session_state"`
+	SessionStateDetail string         `json:"session_state_detail,omitempty"`
+	IssueStatus        string         `json:"issue_status,omitempty"`
+	IssueTopic         string         `json:"issue_topic,omitempty"`
+	Additions          int            `json:"additions"`
+	Deletions          int            `json:"deletions"`
+	DiffStats          *DiffStatsJSON `json:"diff_stats,omitempty"`
+	BranchState        string         `json:"branch_state,omitempty"`
+	ElapsedSeconds     int            `json:"elapsed_seconds,omitempty"`
+	ElapsedDisplay     string         `json:"elapsed_display,omitempty"`
+	Alive              bool           `json:"alive"`
+	AliveKnown         bool           `json:"alive_known"`
+	WorktreeExists     bool           `json:"worktree_exists"`
+	StartedAt          string         `json:"started_at"`
+	UpdatedAt          string         `json:"updated_at"`
+	URI                string         `json:"uri"`
 }
 
 // GetRunResponse is the response for get_run
@@ -178,44 +181,46 @@ type WaitForRunsResponse struct {
 
 // RunFull is the full view of a run including events
 type RunFull struct {
-	IssueID           string         `json:"issue_id"`
-	RunID             string         `json:"run_id"`
-	ShortID           string         `json:"short_id"`
-	Status            string         `json:"status"`
-	IsActive          bool           `json:"is_active"`
-	IsTerminal        bool           `json:"is_terminal"`
-	Phase             string         `json:"phase,omitempty"`
-	Agent             string         `json:"agent"`
-	Profile           string         `json:"profile,omitempty"`
-	Model             string         `json:"model,omitempty"`
-	ModelVariant      string         `json:"model_variant,omitempty"`
-	Branch            string         `json:"branch,omitempty"`
-	WorktreePath      string         `json:"worktree_path,omitempty"`
-	Target            string         `json:"target,omitempty"`
-	TargetHost        string         `json:"target_host,omitempty"`
-	SessionName       string         `json:"session_name,omitempty"`
-	Multiplexer       string         `json:"multiplexer,omitempty"`
-	PRUrl             string         `json:"pr_url,omitempty"`
-	PRNumber          int            `json:"pr_number,omitempty"`
-	PRState           string         `json:"pr_state,omitempty"`
-	ServerPort        int            `json:"server_port,omitempty"`
-	OpenCodeSessionID string         `json:"opencode_session_id,omitempty"`
-	AgentSessionID    string         `json:"agent_session_id,omitempty"`
-	AgentSessionGen   int            `json:"agent_session_generation,omitempty"`
-	IssueStatus       string         `json:"issue_status,omitempty"`
-	IssueTopic        string         `json:"issue_topic,omitempty"`
-	ContinuedFrom     string         `json:"continued_from,omitempty"`
-	DiffStats         *DiffStatsJSON `json:"diff_stats,omitempty"`
-	BranchState       string         `json:"branch_state,omitempty"`
-	ElapsedSeconds    int            `json:"elapsed_seconds,omitempty"`
-	ElapsedDisplay    string         `json:"elapsed_display,omitempty"`
-	Alive             bool           `json:"alive"`
-	AliveKnown        bool           `json:"alive_known"`
-	WorktreeExists    bool           `json:"worktree_exists"`
-	StartedAt         string         `json:"started_at"`
-	UpdatedAt         string         `json:"updated_at"`
-	URI               string         `json:"uri"`
-	Events            []*EventJSON   `json:"events"`
+	IssueID            string         `json:"issue_id"`
+	RunID              string         `json:"run_id"`
+	ShortID            string         `json:"short_id"`
+	Status             string         `json:"status"`
+	IsActive           bool           `json:"is_active"`
+	IsTerminal         bool           `json:"is_terminal"`
+	Phase              string         `json:"phase,omitempty"`
+	Agent              string         `json:"agent"`
+	Profile            string         `json:"profile,omitempty"`
+	Model              string         `json:"model,omitempty"`
+	ModelVariant       string         `json:"model_variant,omitempty"`
+	Branch             string         `json:"branch,omitempty"`
+	WorktreePath       string         `json:"worktree_path,omitempty"`
+	Target             string         `json:"target,omitempty"`
+	TargetHost         string         `json:"target_host,omitempty"`
+	SessionName        string         `json:"session_name,omitempty"`
+	Multiplexer        string         `json:"multiplexer,omitempty"`
+	PRUrl              string         `json:"pr_url,omitempty"`
+	PRNumber           int            `json:"pr_number,omitempty"`
+	PRState            string         `json:"pr_state,omitempty"`
+	ServerPort         int            `json:"server_port,omitempty"`
+	OpenCodeSessionID  string         `json:"opencode_session_id,omitempty"`
+	AgentSessionID     string         `json:"agent_session_id,omitempty"`
+	AgentSessionGen    int            `json:"agent_session_generation,omitempty"`
+	SessionState       string         `json:"session_state"`
+	SessionStateDetail string         `json:"session_state_detail,omitempty"`
+	IssueStatus        string         `json:"issue_status,omitempty"`
+	IssueTopic         string         `json:"issue_topic,omitempty"`
+	ContinuedFrom      string         `json:"continued_from,omitempty"`
+	DiffStats          *DiffStatsJSON `json:"diff_stats,omitempty"`
+	BranchState        string         `json:"branch_state,omitempty"`
+	ElapsedSeconds     int            `json:"elapsed_seconds,omitempty"`
+	ElapsedDisplay     string         `json:"elapsed_display,omitempty"`
+	Alive              bool           `json:"alive"`
+	AliveKnown         bool           `json:"alive_known"`
+	WorktreeExists     bool           `json:"worktree_exists"`
+	StartedAt          string         `json:"started_at"`
+	UpdatedAt          string         `json:"updated_at"`
+	URI                string         `json:"uri"`
+	Events             []*EventJSON   `json:"events"`
 }
 
 // EventJSON is the JSON representation of an event
@@ -375,6 +380,7 @@ func computeBranchStateString(run *model.Run) string {
 
 // RunToSummary converts a model.Run to a RunSummary
 func RunToSummary(run *model.Run) (*RunSummary, error) {
+	sessionlifecycle.Apply(run)
 	diffStats, err := git.GetDiffStats(run.WorktreePath, run.Branch, "main")
 	if err != nil {
 		return nil, err
@@ -385,31 +391,33 @@ func RunToSummary(run *model.Run) (*RunSummary, error) {
 	prNumber, prState := lookupPRInfo(run)
 
 	return &RunSummary{
-		IssueID:           string(run.IssueID),
-		RunID:             string(run.RunID),
-		ShortID:           string(run.ShortID()),
-		Status:            string(run.Status),
-		IsActive:          run.Status.IsActive(),
-		IsTerminal:        run.Status.IsTerminal(),
-		Phase:             string(run.Phase),
-		Agent:             run.Agent,
-		Profile:           run.Profile,
-		Model:             run.Model,
-		Branch:            run.Branch,
-		WorktreePath:      run.WorktreePath,
-		Target:            run.Target,
-		TargetHost:        run.TargetHost,
-		SessionName:       run.SessionName,
-		Multiplexer:       run.Multiplexer,
-		PRUrl:             run.PRUrl,
-		PRNumber:          prNumber,
-		PRState:           prState,
-		ServerPort:        run.ServerPort,
-		OpenCodeSessionID: run.OpenCodeSessionID,
-		AgentSessionID:    run.AgentSessionID,
-		AgentSessionGen:   run.AgentSessionGeneration,
-		Additions:         diffStats.Additions,
-		Deletions:         diffStats.Deletions,
+		IssueID:            string(run.IssueID),
+		RunID:              string(run.RunID),
+		ShortID:            string(run.ShortID()),
+		Status:             string(run.Status),
+		IsActive:           run.Status.IsActive(),
+		IsTerminal:         run.Status.IsTerminal(),
+		Phase:              string(run.Phase),
+		Agent:              run.Agent,
+		Profile:            run.Profile,
+		Model:              run.Model,
+		Branch:             run.Branch,
+		WorktreePath:       run.WorktreePath,
+		Target:             run.Target,
+		TargetHost:         run.TargetHost,
+		SessionName:        run.SessionName,
+		Multiplexer:        run.Multiplexer,
+		PRUrl:              run.PRUrl,
+		PRNumber:           prNumber,
+		PRState:            prState,
+		ServerPort:         run.ServerPort,
+		OpenCodeSessionID:  run.OpenCodeSessionID,
+		AgentSessionID:     run.AgentSessionID,
+		AgentSessionGen:    run.AgentSessionGeneration,
+		SessionState:       string(run.SessionState),
+		SessionStateDetail: run.SessionStateDetail,
+		Additions:          diffStats.Additions,
+		Deletions:          diffStats.Deletions,
 		DiffStats: &DiffStatsJSON{
 			Additions:    diffStats.Additions,
 			Deletions:    diffStats.Deletions,
@@ -442,6 +450,7 @@ func RunToSummaryWithAlive(run *model.Run, computeAlive func(*model.Run) bool) (
 }
 
 func RunToFull(run *model.Run) (*RunFull, error) {
+	sessionlifecycle.Apply(run)
 	events := make([]*EventJSON, len(run.Events))
 	for i, e := range run.Events {
 		events[i] = &EventJSON{
@@ -461,31 +470,33 @@ func RunToFull(run *model.Run) (*RunFull, error) {
 	prNumber, prState := lookupPRInfo(run)
 
 	return &RunFull{
-		IssueID:           string(run.IssueID),
-		RunID:             string(run.RunID),
-		ShortID:           string(run.ShortID()),
-		Status:            string(run.Status),
-		IsActive:          run.Status.IsActive(),
-		IsTerminal:        run.Status.IsTerminal(),
-		Phase:             string(run.Phase),
-		Agent:             run.Agent,
-		Profile:           run.Profile,
-		Model:             run.Model,
-		ModelVariant:      run.ModelVariant,
-		Branch:            run.Branch,
-		WorktreePath:      run.WorktreePath,
-		Target:            run.Target,
-		TargetHost:        run.TargetHost,
-		SessionName:       run.SessionName,
-		Multiplexer:       run.Multiplexer,
-		PRUrl:             run.PRUrl,
-		PRNumber:          prNumber,
-		PRState:           prState,
-		ServerPort:        run.ServerPort,
-		OpenCodeSessionID: run.OpenCodeSessionID,
-		AgentSessionID:    run.AgentSessionID,
-		AgentSessionGen:   run.AgentSessionGeneration,
-		ContinuedFrom:     run.ContinuedFrom,
+		IssueID:            string(run.IssueID),
+		RunID:              string(run.RunID),
+		ShortID:            string(run.ShortID()),
+		Status:             string(run.Status),
+		IsActive:           run.Status.IsActive(),
+		IsTerminal:         run.Status.IsTerminal(),
+		Phase:              string(run.Phase),
+		Agent:              run.Agent,
+		Profile:            run.Profile,
+		Model:              run.Model,
+		ModelVariant:       run.ModelVariant,
+		Branch:             run.Branch,
+		WorktreePath:       run.WorktreePath,
+		Target:             run.Target,
+		TargetHost:         run.TargetHost,
+		SessionName:        run.SessionName,
+		Multiplexer:        run.Multiplexer,
+		PRUrl:              run.PRUrl,
+		PRNumber:           prNumber,
+		PRState:            prState,
+		ServerPort:         run.ServerPort,
+		OpenCodeSessionID:  run.OpenCodeSessionID,
+		AgentSessionID:     run.AgentSessionID,
+		AgentSessionGen:    run.AgentSessionGeneration,
+		SessionState:       string(run.SessionState),
+		SessionStateDetail: run.SessionStateDetail,
+		ContinuedFrom:      run.ContinuedFrom,
 		DiffStats: &DiffStatsJSON{
 			Additions:    diffStats.Additions,
 			Deletions:    diffStats.Deletions,
