@@ -100,7 +100,8 @@ the pre-dispatch ensure. Default: enabled.
   normal local case. A systemd/nohup master with a minimal PATH may spawn a
   worker that cannot find agent CLIs; explicit `orch worker start` from a
   login shell remains the documented override, and the existing
-  `agent not available: <cli>` failure stays the observable symptom.
+  `agent not available: <cli> (worker <id>, host <host>)` failure stays the
+  observable symptom with the evaluating worker identified.
 - "worker not running" disappears as a user-visible error class on
   single-machine setups; docs and the embedded tutorial shrink accordingly.
 - The reconciler runs strictly inside the lease-failure path: zero cost when

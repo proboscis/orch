@@ -3494,7 +3494,8 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 		return
 	}
 
-	if !adapter.IsAvailable() {
+	isRemoteTarget := strings.TrimSpace(req.Target) != "" && strings.TrimSpace(req.Target) != "local"
+	if !isRemoteTarget && !adapter.IsAvailable() {
 		encoder.Encode(StartRunResponse{OK: false, Error: "agent not available: " + agentName})
 		return
 	}
@@ -3840,7 +3841,7 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}
 
 	if !isRemoteTarget && !adapter.IsAvailable() {
-		return nil, fmt.Errorf("agent not available: %s", agentName)
+		return nil, s.agentNotAvailableError(agentName)
 	}
 	if isRemoteTarget && adapter.PromptInjection() == agent.InjectionHTTP {
 		return nil, fmt.Errorf("agent %s with HTTP prompt injection is not supported with remote target %q", agentName, targetName)
@@ -4127,6 +4128,21 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}, nil
 }
 
+func (s *SocketServer) agentNotAvailableError(agentName string) error {
+	workerID := strings.TrimSpace(s.currentWorkerID)
+	host := strings.TrimSpace(s.currentWorkerHost)
+	switch {
+	case workerID != "" && host != "":
+		return fmt.Errorf("agent not available: %s (worker %s, host %s)", agentName, workerID, host)
+	case workerID != "":
+		return fmt.Errorf("agent not available: %s (worker %s)", agentName, workerID)
+	case host != "":
+		return fmt.Errorf("agent not available: %s (host %s)", agentName, host)
+	default:
+		return fmt.Errorf("agent not available: %s", agentName)
+	}
+}
+
 func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string, opts *ContinueRunOptions) (*ContinueRunResult, error) {
 	cfg, err := loadConfigForProjectRoot(projectRoot)
 	if err != nil {
@@ -4340,7 +4356,7 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 	}
 
 	if !adapter.IsAvailable() {
-		return nil, fmt.Errorf("agent not available: %s", agentName)
+		return nil, s.agentNotAvailableError(agentName)
 	}
 
 	reqModel := strings.TrimSpace(opts.Model)

@@ -119,6 +119,7 @@ This is the correct mechanism/policy split and must be preserved by E2/E3:
 | LL3 completion finality | a completed lease never changes again (Completed is terminal; acks after completion are no-ops — currently unguarded, needs a check) |
 | LL4 restart amnesia is safe | master restart ⇒ all leases forgotten; every caller observes failure within its timeout; no run transition is *decided* by lease state alone (only via observations, §4) |
 | LL5 snapshot sufficiency | a worker executes any effect using only the lease payload (RunSnapshot); it never reads its local store for master-owned runs (PR #457's contract) |
+| LL6 start target confinement | every `start_run` resolves a `TargetWorkerID` before lease acquisition; empty/`local` targets resolve to the master's host worker, named targets resolve through `config.targets`, and neither may fall back to another worker |
 
 ## Next (E2/E3)
 

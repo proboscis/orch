@@ -1447,14 +1447,15 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		return errorResponse(err.Error())
 	}
 
-	if strings.TrimSpace(opts.Target) != "" && strings.TrimSpace(opts.Target) != "local" {
-		target, targetErr := resolveTargetForProjectRoot(projectRoot, opts.Target)
-		if targetErr != nil {
-			return errorResponse(targetErr.Error())
-		}
-		opts.TargetHost = target.Host
-		opts.TargetWorkerID = target.WorkerID
+	// Resolve even the implicit local target before acquiring the lease. Leaving
+	// TargetWorkerID empty makes worker selection a preference with arbitrary
+	// fallback, so an untargeted run can otherwise execute on any registered host.
+	target, targetErr := resolveStartRunWorkerTarget(projectRoot, opts.Target)
+	if targetErr != nil {
+		return errorResponse(targetErr.Error())
 	}
+	opts.TargetHost = target.Host
+	opts.TargetWorkerID = target.WorkerID
 
 	// Resolve the issue on the MASTER (issue-store SSOT) and carry the snapshot in
 	// the worker payload. Fail fast here, before delegating, so a missing issue
