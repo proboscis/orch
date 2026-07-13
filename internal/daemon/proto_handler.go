@@ -931,9 +931,6 @@ func (s *SocketServer) handleProtoListRuns(req *orchpb.ListRunsRequest) *orchpb.
 	if err != nil {
 		return errorResponse(err.Error())
 	}
-	if err := s.enrichRunWorktreeStates(paginatedEntries, protoRuns); err != nil {
-		return errorResponse(err.Error())
-	}
 	applyIssueMetadataToRunEntries(paginatedEntries, protoRuns)
 	s.applyRunLiveness(paginatedRuns, protoRuns)
 	enrichDuration := time.Since(enrichStart)
@@ -1115,21 +1112,6 @@ func (s *SocketServer) enrichRunProtoForResponse(ctx *orchpb.RequestContext, pr 
 		return nil
 	}
 	return enrichRunProto(pr, run, s.gitRunner)
-}
-
-func (s *SocketServer) enrichRunWorktreeStates(entries []runStoreEntry, protoRuns []*orchpb.Run) error {
-	for i, entry := range entries {
-		if i >= len(protoRuns) || protoRuns[i] == nil || entry.run == nil {
-			continue
-		}
-		ctx := s.worktreeRequestContext("", entry.store)
-		result, err := s.runWorktreeOperation(ctx, entry.run, runWorktreeInspect)
-		if err != nil {
-			return fmt.Errorf("inspect worktree for run %s#%s: %w", entry.run.IssueID, entry.run.RunID, err)
-		}
-		protoRuns[i].WorktreeExists = result.Exists
-	}
-	return nil
 }
 
 func enrichRunsParallel(runs []*model.Run, protoRuns []*orchpb.Run) ([]*orchpb.Run, error) {

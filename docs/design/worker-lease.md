@@ -86,16 +86,21 @@ Worktree facts obey the same boundary. A run worktree belongs to its execution
 host, not to the master that stores the run record:
 
 ```
-ObserveWorktree(r) = stat(worker(r.TargetHost), r.WorktreePath)
-CleanWorktree(r)   = remove(worker(r.TargetHost), repo(r), r.WorktreePath)
+ObserveSingleRunWorktree(r) = stat(worker(r.TargetHost), r.WorktreePath)
+CleanWorktree(r)            = remove(worker(r.TargetHost), repo(r), r.WorktreePath)
 worker unavailable or observation error => explicit error
-                                      != WorktreeExists(false)
-                                      != skipped("worktree already absent")
+                                           != WorktreeExists(false)
+                                           != skipped("worktree already absent")
+ListRuns.WorktreeExists(r) = unpopulated
 ```
 
 The last inequality is the fail-clearly part of LL7: absence is a worker-local
 observation, never a master-side inference from a path in another filesystem
-namespace.
+namespace. Live inspection is deliberately confined to single-run reads and
+mutations. List paths do not issue one synchronous lease per run: doing so
+amplifies latency, saturates the worker lease plane under polling clients, and
+makes one unavailable historical worker fail the whole list. Any future list
+enrichment must use a batched per-host operation rather than per-run leases.
 
 ## 5. Store-of-record
 
@@ -135,7 +140,7 @@ namespace.
 | LL4 restart amnesia is safe | master restart ⇒ all leases forgotten; every caller observes failure within its timeout; no run transition is *decided* by lease state alone (only via observations, §4) |
 | LL5 snapshot sufficiency | a worker executes any effect using only the lease payload (RunSnapshot); it never reads its local store for master-owned runs (PR #457's contract) |
 | LL6 start target confinement | every `start_run` resolves a `TargetWorkerID` before lease acquisition; empty/`local` targets resolve to the master's host worker, named targets resolve through `config.targets`, and neither may fall back to another worker |
-| LL7 worktree host confinement | worktree inspect/remove executes on the run's target worker; an unavailable worker or failed stat/git operation is returned with host/cause and is never converted to `exists=false` or an absent skip |
+| LL7 worktree host confinement | single-run worktree inspect/remove executes on the run's target worker; an unavailable worker or failed stat/git operation is returned with host/cause and is never converted to `exists=false` or an absent skip; list paths leave worktree existence unpopulated pending a batched per-host operation |
 
 ## Verification and maintenance
 

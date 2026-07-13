@@ -1702,29 +1702,6 @@ func TestRemoteGetRunReportsWorkerObservedWorktreeExists(t *testing.T) {
 	if !got.WorktreeExists {
 		t.Fatalf("worktree_exists = false, want worker-observed true for %s", got.WorktreePath)
 	}
-
-	go func() {
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			lease := server.leaseWorkForWorker(workerID)
-			if lease == nil {
-				time.Sleep(10 * time.Millisecond)
-				continue
-			}
-			_ = server.acknowledgeWorkerLease(workerID, lease.LeaseID, true, "", `{"run_worktree_result":{"exists":true,"registered":true}}`)
-			return
-		}
-	}()
-	listResp := server.handleProtoListRuns(&orchpb.ListRunsRequest{
-		Context: &orchpb.RequestContext{ProjectId: testProjectID},
-	})
-	if !listResp.Ok {
-		t.Fatalf("handleProtoListRuns() error = %s", listResp.Error)
-	}
-	listedRuns := listResp.GetListRuns().GetRuns()
-	if len(listedRuns) != 1 || !listedRuns[0].WorktreeExists {
-		t.Fatalf("listed runs = %+v, want one worker-observed existing worktree", listedRuns)
-	}
 }
 
 func TestRemoteGetRunWorktreeObservationFailureIsExplicit(t *testing.T) {
@@ -6701,8 +6678,27 @@ func TestRunMutationUsesMasterSnapshotAndHostAffinity(t *testing.T) {
 	}
 
 	listResp := server.handleProtoListRuns(&orchpb.ListRunsRequest{Context: ctx})
-	if listResp.Ok || !strings.Contains(listResp.Error, `execution host dead-host`) {
-		t.Fatalf("list must fail clearly when worktree host is unavailable, ok=%v error=%q", listResp.Ok, listResp.Error)
+	if !listResp.Ok || len(listResp.GetListRuns().GetRuns()) != 1 {
+		t.Fatalf("list must remain available when a run's execution host is unavailable, ok=%v error=%q", listResp.Ok, listResp.Error)
+	}
+	if listResp.GetListRuns().GetRuns()[0].WorktreeExists {
+		t.Fatal("list must leave worktree_exists unpopulated instead of performing per-run inspection")
+	}
+
+	var legacyListBuffer bytes.Buffer
+	branch := run.Branch
+	run.Branch = "" // Keep this assertion focused on worktree inspection, not diff enrichment.
+	server.handleListRuns(SendRequest{RepoID: "project-legacy"}, json.NewEncoder(&legacyListBuffer))
+	run.Branch = branch
+	var legacyListResp ListRunsResponse
+	if err := json.Unmarshal(legacyListBuffer.Bytes(), &legacyListResp); err != nil {
+		t.Fatalf("decode legacy list response: %v", err)
+	}
+	if !legacyListResp.OK || len(legacyListResp.Runs) != 1 {
+		t.Fatalf("legacy list must remain available when a run's execution host is unavailable, ok=%v error=%q", legacyListResp.OK, legacyListResp.Error)
+	}
+	if legacyListResp.Runs[0].WorktreeExists {
+		t.Fatal("legacy list must leave worktree_exists unpopulated instead of performing per-run inspection")
 	}
 
 	stopResp := server.handleProtoStopRun(&orchpb.StopRunRequest{

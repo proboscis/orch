@@ -3158,12 +3158,6 @@ func (s *SocketServer) handleListRuns(req SendRequest, encoder *json.Encoder) {
 
 	summaries := make([]*RunSummary, len(paginatedRuns))
 	for i, run := range paginatedRuns {
-		worktreeResult, err := s.runWorktreeOperation(s.worktreeRequestContext(req.RepoID, selectedStore), run, runWorktreeInspect)
-		if err != nil {
-			encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
-			return
-		}
-		run.WorktreeExists = worktreeResult.Exists
 		summary, err := RunToSummaryWithAlive(run, computeAlive)
 		if err != nil {
 			encoder.Encode(ListRunsResponse{OK: false, Error: err.Error()})
