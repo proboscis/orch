@@ -71,9 +71,11 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 
 	origRequire := requireDaemonForWorker
 	origRun := runExternalWorkerLoop
+	origLogAvailability := logWorkerAgentAvailability
 	t.Cleanup(func() {
 		requireDaemonForWorker = origRequire
 		runExternalWorkerLoop = origRun
+		logWorkerAgentAvailability = origLogAvailability
 	})
 
 	requireDaemonForWorker = func() (worker.Client, error) {
@@ -86,6 +88,13 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	}
 
 	called := false
+	availabilityLogged := false
+	logWorkerAgentAvailability = func(workerID string) {
+		availabilityLogged = true
+		if workerID != "worker-1" {
+			t.Fatalf("availability worker id = %q, want worker-1", workerID)
+		}
+	}
 	var got worker.RunConfig
 	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
 		called = true
@@ -101,6 +110,9 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 
 	if !called {
 		t.Fatal("expected runExternalWorkerLoop to be called")
+	}
+	if !availabilityLogged {
+		t.Fatal("expected worker startup to log agent availability")
 	}
 	if got.WorkerID != "worker-1" || !got.Once || got.PollInterval != 300*time.Millisecond || got.HeartbeatInterval != 7*time.Second {
 		t.Fatalf("unexpected run config: %+v", got)

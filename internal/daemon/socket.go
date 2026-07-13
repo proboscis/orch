@@ -2469,8 +2469,9 @@ func (s *SocketServer) processControlAgentLaunchCore(st store.Store, params *Con
 		return nil, fmt.Errorf("failed to get adapter: %w", err)
 	}
 
-	if !adapter.IsAvailable() {
-		return nil, fmt.Errorf("%s CLI not available", agentName)
+	availability := adapter.ProbeAvailability()
+	if !availability.Available {
+		return nil, s.agentNotAvailableError(agentName, availability)
 	}
 
 	prompt := getControlPromptInstruction()
@@ -3495,9 +3496,12 @@ func (s *SocketServer) handleStartRun(req SendRequest, encoder *json.Encoder) {
 	}
 
 	isRemoteTarget := strings.TrimSpace(req.Target) != "" && strings.TrimSpace(req.Target) != "local"
-	if !isRemoteTarget && !adapter.IsAvailable() {
-		encoder.Encode(StartRunResponse{OK: false, Error: "agent not available: " + agentName})
-		return
+	if !isRemoteTarget {
+		availability := adapter.ProbeAvailability()
+		if !availability.Available {
+			encoder.Encode(StartRunResponse{OK: false, Error: s.agentNotAvailableError(agentName, availability).Error()})
+			return
+		}
 	}
 
 	runID := model.RunID(req.RunID)
@@ -3840,8 +3844,11 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 		return nil, fmt.Errorf("failed to get adapter: %w", err)
 	}
 
-	if !isRemoteTarget && !adapter.IsAvailable() {
-		return nil, s.agentNotAvailableError(agentName)
+	if !isRemoteTarget {
+		availability := adapter.ProbeAvailability()
+		if !availability.Available {
+			return nil, s.agentNotAvailableError(agentName, availability)
+		}
 	}
 	if isRemoteTarget && adapter.PromptInjection() == agent.InjectionHTTP {
 		return nil, fmt.Errorf("agent %s with HTTP prompt injection is not supported with remote target %q", agentName, targetName)
@@ -4128,19 +4135,21 @@ func (s *SocketServer) processStartRunCore(st store.Store, projectRoot string, o
 	}, nil
 }
 
-func (s *SocketServer) agentNotAvailableError(agentName string) error {
+func (s *SocketServer) agentNotAvailableError(agentName string, availability agent.Availability) error {
 	workerID := strings.TrimSpace(s.currentWorkerID)
 	host := strings.TrimSpace(s.currentWorkerHost)
-	switch {
-	case workerID != "" && host != "":
-		return fmt.Errorf("agent not available: %s (worker %s, host %s)", agentName, workerID, host)
-	case workerID != "":
-		return fmt.Errorf("agent not available: %s (worker %s)", agentName, workerID)
-	case host != "":
-		return fmt.Errorf("agent not available: %s (host %s)", agentName, host)
-	default:
-		return fmt.Errorf("agent not available: %s", agentName)
+	identity := make([]string, 0, 2)
+	if workerID != "" {
+		identity = append(identity, "worker "+workerID)
 	}
+	if host != "" {
+		identity = append(identity, "host "+host)
+	}
+	detail := availability.Diagnostic()
+	if len(identity) > 0 {
+		detail = strings.Join(identity, ", ") + "; " + detail
+	}
+	return fmt.Errorf("agent not available: %s (%s)", agentName, detail)
 }
 
 func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string, opts *ContinueRunOptions) (*ContinueRunResult, error) {
@@ -4355,8 +4364,9 @@ func (s *SocketServer) processContinueRunCore(st store.Store, projectRoot string
 		return nil, fmt.Errorf("failed to get adapter: %w", err)
 	}
 
-	if !adapter.IsAvailable() {
-		return nil, s.agentNotAvailableError(agentName)
+	availability := adapter.ProbeAvailability()
+	if !availability.Available {
+		return nil, s.agentNotAvailableError(agentName, availability)
 	}
 
 	reqModel := strings.TrimSpace(opts.Model)
@@ -4801,8 +4811,9 @@ func (s *SocketServer) handleContinueRun(req SendRequest, encoder *json.Encoder)
 		return
 	}
 
-	if !adapter.IsAvailable() {
-		encoder.Encode(ContinueRunResponse{OK: false, Error: "agent not available: " + agentName})
+	availability := adapter.ProbeAvailability()
+	if !availability.Available {
+		encoder.Encode(ContinueRunResponse{OK: false, Error: s.agentNotAvailableError(agentName, availability).Error()})
 		return
 	}
 

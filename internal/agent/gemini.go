@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"os/exec"
 	"strings"
 )
 
@@ -12,9 +11,8 @@ func (a *GeminiAdapter) Type() AgentType {
 	return AgentGemini
 }
 
-func (a *GeminiAdapter) IsAvailable() bool {
-	cmd := exec.Command("gemini", "--version")
-	return cmd.Run() == nil
+func (a *GeminiAdapter) ProbeAvailability() Availability {
+	return probeCommand(AgentGemini, "gemini", "gemini --version", "--version")
 }
 
 func (a *GeminiAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {

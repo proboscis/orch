@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"os/exec"
 	"strings"
 )
 
@@ -12,9 +11,8 @@ func (a *ClaudeAdapter) Type() AgentType {
 	return AgentClaude
 }
 
-func (a *ClaudeAdapter) IsAvailable() bool {
-	cmd := exec.Command("claude", "--version")
-	return cmd.Run() == nil
+func (a *ClaudeAdapter) ProbeAvailability() Availability {
+	return probeCommand(AgentClaude, "claude", "claude --version", "--version")
 }
 
 func (a *ClaudeAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {

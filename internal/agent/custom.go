@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 )
 
 // CustomAdapter handles custom agent commands
@@ -11,9 +12,18 @@ func (a *CustomAdapter) Type() AgentType {
 	return AgentCustom
 }
 
-func (a *CustomAdapter) IsAvailable() bool {
-	// Custom adapter is always "available" - the actual command check happens at runtime
-	return true
+func (a *CustomAdapter) ProbeAvailability() Availability {
+	// A custom command is part of each launch config, not the adapter, so it
+	// cannot be probed until launch. Preserve the existing availability
+	// contract while making that deferred check explicit in startup logs.
+	return Availability{
+		Agent:     AgentCustom,
+		Available: true,
+		Probe:     "custom command",
+		ExitCode:  -1,
+		Path:      os.Getenv("PATH"),
+		Deferred:  true,
+	}
 }
 
 func (a *CustomAdapter) LaunchCommand(cfg *LaunchConfig) (string, error) {
