@@ -671,7 +671,9 @@ type StartRunOptions struct {
 type StartRunResponse struct {
 	OK           bool   `json:"ok"`
 	Error        string `json:"error,omitempty"`
+	IssueID      string `json:"issue_id,omitempty"`
 	RunID        string `json:"run_id,omitempty"`
+	ShortID      string `json:"short_id,omitempty"`
 	Branch       string `json:"branch,omitempty"`
 	WorktreePath string `json:"worktree,omitempty"`
 	SessionName  string `json:"session_name,omitempty"`

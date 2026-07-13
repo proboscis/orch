@@ -705,7 +705,9 @@ func (c *ProtoClient) StartRun(opts *StartRunOptions) (*StartRunResponse, error)
 
 	return &StartRunResponse{
 		OK:           true,
+		IssueID:      startResp.IssueId,
 		RunID:        startResp.RunId,
+		ShortID:      startResp.ShortId,
 		Branch:       startResp.Branch,
 		WorktreePath: startResp.WorktreePath,
 		SessionName:  startResp.SessionName,

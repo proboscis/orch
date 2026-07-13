@@ -304,7 +304,9 @@ func (c *DaemonClient) StartRun(ctx context.Context, req *StartRunRequest) (*Sta
 		return nil, err
 	}
 	return &StartRunResult{
+		IssueID:      model.IssueID(resp.IssueID),
 		RunID:        model.RunID(resp.RunID),
+		ShortID:      model.ShortID(resp.ShortID),
 		Branch:       resp.Branch,
 		WorktreePath: resp.WorktreePath,
 		SessionName:  resp.SessionName,

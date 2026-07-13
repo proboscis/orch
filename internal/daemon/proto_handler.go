@@ -1499,7 +1499,9 @@ func (s *SocketServer) handleProtoStartRun(req *orchpb.StartRunRequest) *orchpb.
 		Ok: true,
 		Response: &orchpb.Response_StartRun{
 			StartRun: &orchpb.StartRunResponse{
+				IssueId:      req.IssueId,
 				RunId:        string(result.RunID),
+				ShortId:      string(model.GenerateShortID(issue.ID, result.RunID)),
 				Branch:       result.Branch,
 				WorktreePath: result.WorktreePath,
 				SessionName:  result.SessionName,
