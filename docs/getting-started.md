@@ -6,9 +6,8 @@ This guide will take you from zero to your first working agent run in about 5 mi
 
 Before installing orch, ensure you have:
 
-1. **Go 1.25+** - For building orch from source (or use pre-built binaries)
-2. **tmux** or **zellij** - Terminal multiplexer for agent sessions
-3. **An LLM CLI, logged in** - At least one of:
+1. **tmux** or **zellij** - Terminal multiplexer for agent sessions
+2. **An LLM CLI, logged in** - At least one of:
    - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
    - [OpenCode](https://github.com/sst/opencode) (`opencode`)
    - [Codex](https://github.com/openai/codex) (`codex`)
@@ -22,19 +21,18 @@ Before installing orch, ensure you have:
    `gate_login`. To run multiple accounts of the same CLI (or pin an account
    to specific machines), see the Profiles section of your agent's guide
    ([Claude](./agents/claude.md#profiles), [Codex](./agents/codex.md#profiles)).
-4. **Git** - For worktree management. Your repository must have an `origin`
+3. **Git** - For worktree management. Your repository must have an `origin`
    remote — orch derives the project identity from its URL. (For a local
    sandbox the URL does not need to exist on GitHub; it is used as an
    identity.)
-5. **GitHub CLI** (`gh`) - Required for the PR workflow. Run `gh auth login` before creating PRs.
-6. **uv** - Required only when installing or developing the Python TUI (`orch-monitor`)
+4. **GitHub CLI** (`gh`) - Required for the PR workflow. Run `gh auth login` before creating PRs.
+5. **uv** - Required only when installing or developing the Python TUI (`orch-monitor`)
+6. **Go 1.25+** - Only for building orch from source (Options 3–4 below);
+   the recommended install script and pre-built binaries need no Go.
 
 ### Quick prerequisite check
 
 ```bash
-# Verify Go
-go version
-
 # Verify the terminal multiplexer you plan to use
 tmux -V                 # or: zellij --version
 
@@ -43,6 +41,9 @@ claude --version
 
 # Verify GitHub CLI authentication for PR workflows
 gh auth status
+
+# Only if building from source (Options 3-4)
+go version
 ```
 
 ## Installation
@@ -52,6 +53,10 @@ gh auth status
 ```bash
 curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bash
 ```
+
+The script installs to `~/.local/bin` and adds it to your shell rc file. That
+does not affect the terminal you ran it in: if `orch` is not found right after
+installing, open a new shell (or `source` your rc) first.
 
 Prefer to have your AI agent do the whole setup (binary + skill + guided
 first run)? Follow the [Agent Install Runbook](./agent-install.md) instead.
@@ -75,10 +80,14 @@ chmod +x orch
 sudo mv orch /usr/local/bin/
 ```
 
+Note: this installs to `/usr/local/bin`, while Option 1 uses `~/.local/bin`.
+Stick to one method so a stale copy never shadows the current one on `PATH`.
+
 ### Option 3: Install from source
 
 ```bash
-go install github.com/proboscis/orch/cmd/orch@latest
+# Pin the tag: @latest resolves to the last non-beta release
+go install github.com/proboscis/orch/cmd/orch@v1.7.0-beta
 ```
 
 ### Option 4: Build from a local checkout
@@ -343,8 +352,9 @@ Once you're comfortable with the basics, explore these power-user features:
 A visual dashboard for managing issues and runs:
 
 ```bash
-# Install the TUI
-uv tool install ./orch-monitor-tui
+# Install the TUI (skip if you used install.sh — it already installed it).
+uv tool install "git+https://github.com/proboscis/orch#subdirectory=orch-monitor-tui"
+# From a local checkout instead: uv tool install ./orch-monitor-tui
 
 # Launch or attach to it
 orch-monitor

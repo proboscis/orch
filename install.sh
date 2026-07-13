@@ -3,7 +3,7 @@
 # curl -sSL https://raw.githubusercontent.com/proboscis/orch/main/install.sh | bash
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 REPO="proboscis/orch"
 INSTALL_DIR="${HOME}/.local/bin"
 CONFIG_DIR="${HOME}/.config/orch"
