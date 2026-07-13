@@ -202,6 +202,8 @@ run-state-machine.md と同じ playbook を適用する。
 | 5 | client/daemon 境界(読み取り) | semgrep ~60 ルール✓ | `make lint` + CI | 完了 |
 | 6 | cancellation/stop 意味論(W7/W8, PR close terminal) | **disposition 決定済み**(run-state-machine.md §6): W7=ladder と統合、W8=v2 統合 | terminal guard + A1 凍結 | W7 統合済(D-B1); W8 は v2 |
 | 7 | エラー伝播 × append(fail-fast) | **修正済み (A2, 2026-06-12)** | `no-ignored-status-append` ルール | 完了 |
+| P-1 | 【未解決の構造問題】agent 状態の報告チャネルが存在せず、run status を画面・死活のプロキシ観測から推論している。§9 gate / §10 attestation / §11 pr-attach / §12 L-S3 は全て同一問題が生む補正条項 family(= 症状一覧) | 問題として記録(2026-07-13)。解決策は未決定 — 誰もこの構造を「選択」した事実はない | 各条項の property tests(症状の再発防止のみ。問題自体は塞げていない) | 解決には明示的な設計判断が必要(候補: agent 状態プロトコル)。条項 family が成長を続ける事実をこの表で可視化する |
+| P-2 | 【未解決の構造問題】session lifecycle に第一級の表現が無い。現状は agent_session artifact と session_reaped note の比較式(ADR-0005 L-S3 ラッチ)という影の状態機械 | 問題として記録(2026-07-13)。解決策は未決定 | L-S3 property tests(現行 2 イベント範囲のみ) | Stage 3(revive)が世代連鎖を本格化させる前に、session 世代台帳(明示的状態機械)への昇格を設計判断として検討するのが自然な時期 |
 
 進捗ログ:
 - 2026-06-12 Phase A 完了(PR #463): A1 ルール+46 サイト凍結 / A2 fail-fast 化 / A3 AGENTS.md routing。

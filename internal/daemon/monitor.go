@@ -91,6 +91,18 @@ func (d *Daemon) monitorRun(run *model.Run, st store.Store, projectID, projectRo
 		}
 	}
 
+	// L-S3 (ADR-0005, run-state-machine.md §12): the run's current session
+	// generation was reaped by the daemon — there is no session to observe.
+	// Liveness and capture gathering are skipped as mechanism; the
+	// stepSessionGone absorption is the law beneath it (defense in depth for
+	// observations that slip through, e.g. a mid-tick reap). The O1
+	// PR-outcome fold above still runs: a reaped pr_open run must still
+	// reach done when its PR merges. Revive dissolves the latch with a
+	// higher-generation agent_session artifact (R5).
+	if run.SessionReaped() {
+		return nil
+	}
+
 	mgr := agent.GetManager(run)
 
 	// Runs executing on another host via the worker plane cannot be observed

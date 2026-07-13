@@ -96,6 +96,7 @@ O1 PR merged                 branch or PRUrl set                   → done
 O1 PR closed                 〃                                    → canceled (+pr_closed artifact)
 O1 PR open/unknown           〃                                    遷移なし (URL発見時はartifact記録のみ)
 
+O3 session gone              reaped generation (§12 L-S3)          遷移なし (吸収 — カウント不進行、証拠要求なし)
 O3 session gone              count < 3                             遷移なし (カウント++)
 O3 session gone, count ≥ 3   → O5 git evidence を収集して判定:
    O5: PR(branch) found                                            → done/canceled/pr_open (outcomeに従う; URL未記録なら記録)
@@ -961,3 +962,45 @@ latch clearing, L-N1 once-only, L-N2 idle-only, L-N3 same-tick separation,
 2026-07-11 incident replay), `monitor_test.go` (refusal threading, note-event
 fold, failed-delivery retryability), `socket_test.go` (prompt branch
 discipline).
+
+## 12. Reaped sessions — gone-by-design absorption (ADR-0005 L-S3, decided 2026-07-13)
+
+Status: implemented (T2c). Lands BEFORE any reaper exists: with no
+`session_reaped` note in any log the arm is a no-op by construction, so the
+absorption law is in force before the first kill can happen (ordering
+required by ADR-0005 LS3 — reap may never go live without it).
+
+ADR-0005 (`docs/adr/defadr_0005_run_session_lifecycle.hy`) makes the daemon
+itself a session killer: a run's mux session may be intentionally destroyed
+(reap) while the run stays meaningful in every durable sense (agent
+transcript, worktree, event log). Without a law, the killer's own monitor
+reads the kill as death evidence — O3 gone streaks from an attested
+observer (§10) reach the evidence ladder and can manufacture a false
+`failed`. That is LS3's counterexample, and it is the §10 incident class
+inverted: there the observer was blind, here the observer is right but the
+disappearance is our own act.
+
+> **L-S3 (reap absorption).** A gone observation (O3) for a run whose
+> current agent-session generation is recorded as reaped advances no
+> dead-check streak, requests no evidence, and emits no verdict. The latch
+> is view-derived from the event log (D-C1: no core state):
+> `reaped := ReapedGeneration > 0 ∧ ReapedGeneration ≥ AgentSessionGeneration`,
+> where `AgentSessionGeneration` folds from the latest `agent_session`
+> artifact (ADR-0005 R1) and `ReapedGeneration` folds from the highest
+> `daemon_notice(kind=session_reaped)` generation (R3; the note is appended
+> BEFORE the kill, so the latch is fold-visible on every channel and
+> survives restarts). A revive dissolves the latch by recording a
+> higher-generation `agent_session` artifact (R5). The identity-less arm
+> (`AgentSessionGeneration = 0` with a reap note) absorbs too: R4 forbids
+> the reaper from producing it, but if it appears the safe direction is
+> delaying verdicts, never inventing them (L7' strength monotonicity).
+
+Mechanism/policy split (§5 D2): the shell additionally SKIPS O2/O3/O4
+gathering for reaped runs in `monitorRun` — observing a session we killed
+is wasted work — while the O1 PR-outcome fold keeps running: a reaped
+`pr_open` run still reaches `done` when its PR merges, and issue
+auto-resolve still fires. The step() arm is the law; the shell skip is
+mechanism and carries no policy. Property tests:
+`internal/daemon/step_reap_test.go` (absorption across agents × channels ×
+thresholds, revive dissolution, latch boundaries), fold tests:
+`internal/model/run_reap_test.go`.
