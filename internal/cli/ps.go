@@ -469,6 +469,7 @@ func outputJSONWithIssueInfo(
 		BranchStatus      string `json:"branch_status"`
 		PRStatus          string `json:"pr_status"`
 		AgentAlive        string `json:"agent_alive"`
+		SessionState      string `json:"session_state"`
 		UpdatedAt         string `json:"updated_at"`
 		UpdatedAgo        string `json:"updated_ago"`
 		StartedAt         string `json:"started_at"`
@@ -524,6 +525,7 @@ func outputJSONWithIssueInfo(
 			BranchStatus:      branchStatus,
 			PRStatus:          prStatusFromRun(r, branchStateByRun[runKey]),
 			AgentAlive:        formatAliveText(aliveInfo),
+			SessionState:      string(r.SessionState),
 			UpdatedAt:         r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			UpdatedAgo:        formatRelativeTime(r.UpdatedAt, now),
 			StartedAt:         r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
@@ -576,7 +578,7 @@ func outputTSVWithIssueInfo(
 		target := strings.TrimSpace(r.Target)
 		targetHost := strings.TrimSpace(targetHostByRun[runKey])
 
-		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			issueKey,
 			issueStatus,
 			runKey,
@@ -591,6 +593,7 @@ func outputTSVWithIssueInfo(
 			branchStatus,
 			prStatusFromRun(r, branchStateByRun[runKey]),
 			formatAliveText(aliveInfo),
+			r.SessionState,
 			r.StartedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			r.PRUrl,
@@ -688,7 +691,7 @@ func outputTableWithGitStates(
 		targetHostByRun = resolveTargetHostByRun(runs)
 	}
 
-	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "PROFILE", "MODEL", "TARGET", "HOST", "AGENT", "ALIVE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
+	headers := []string{"ID", "ISSUE", "ISSUE-ST", "CLI", "PROFILE", "MODEL", "TARGET", "HOST", "AGENT", "ALIVE", "SESSION-STATE", "BRANCH", "WORKTREE", "PR", "STARTED", "UPDATED", "TOPIC"}
 	var rows [][]string
 
 	for _, r := range runs {
@@ -748,6 +751,7 @@ func outputTableWithGitStates(
 			targetHostDisplay,
 			colorShortStatus(r.Status),
 			colorAlive(aliveInfo),
+			string(r.SessionState),
 			colorBranchStatus(branchStatus),
 			worktree,
 			colorPrStatus(prStatus),

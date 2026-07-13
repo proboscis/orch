@@ -5,20 +5,23 @@ import (
 	"testing"
 	"time"
 
+	"github.com/proboscis/orch/internal/model"
 	"github.com/proboscis/orch/internal/orchapi"
 )
 
 func TestShowJSONIncludesEvents(t *testing.T) {
 	run := &orchapi.Run{
-		IssueID:      "issue-1",
-		RunID:        "run-1",
-		Status:       orchapi.RunStatusRunning,
-		Branch:       "branch",
-		WorktreePath: "/tmp/worktree",
-		Target:       "mac",
-		TargetHost:   "mac",
-		SessionName:  "session",
-		PRUrl:        "http://example.com/pr/1",
+		IssueID:            "issue-1",
+		RunID:              "run-1",
+		Status:             orchapi.RunStatusRunning,
+		Branch:             "branch",
+		WorktreePath:       "/tmp/worktree",
+		Target:             "mac",
+		TargetHost:         "mac",
+		SessionName:        "session",
+		SessionState:       model.SessionStateReapedUnrevivable,
+		SessionStateDetail: "revive precondition missing: agent_session identity is not recorded",
+		PRUrl:              "http://example.com/pr/1",
 	}
 
 	run.Events = []*orchapi.Event{
@@ -41,10 +44,11 @@ func TestShowJSONIncludesEvents(t *testing.T) {
 	})
 
 	var got struct {
-		OK         bool   `json:"ok"`
-		Target     string `json:"target"`
-		TargetHost string `json:"target_host"`
-		Events     []struct {
+		OK           bool   `json:"ok"`
+		Target       string `json:"target"`
+		TargetHost   string `json:"target_host"`
+		SessionState string `json:"session_state"`
+		Events       []struct {
 			Type string `json:"type"`
 			Name string `json:"name"`
 		} `json:"events"`
@@ -58,5 +62,8 @@ func TestShowJSONIncludesEvents(t *testing.T) {
 	}
 	if got.Target != "mac" || got.TargetHost != "mac" {
 		t.Fatalf("unexpected target metadata: %+v", got)
+	}
+	if got.SessionState != "reaped(unrevivable)" {
+		t.Fatalf("session_state = %q, want reaped(unrevivable)", got.SessionState)
 	}
 }

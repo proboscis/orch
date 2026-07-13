@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -256,6 +257,158 @@ type resolveRunAppendCall struct {
 type resolveRunSetIssueStatusCall struct {
 	issueID model.IssueID
 	status  model.IssueStatus
+}
+
+func sessionStateTestRun(t *testing.T, issueID, runID string, reaped, withIdentity bool) *model.Run {
+	t.Helper()
+	now := time.Date(2026, 7, 13, 10, 11, 12, 0, time.UTC)
+	run := &model.Run{
+		IssueID: model.IssueID(issueID),
+		RunID:   model.RunID(runID),
+		Agent:   "codex",
+		Events: []*model.Event{
+			{Timestamp: now.Add(-4 * time.Second), Type: model.EventTypeArtifact, Name: "worktree", Attrs: map[string]string{"path": "/tmp/" + runID}},
+			{Timestamp: now.Add(-3 * time.Second), Type: model.EventTypeArtifact, Name: "session", Attrs: map[string]string{"name": model.GenerateSessionName(model.IssueID(issueID), model.RunID(runID)), "multiplexer": "tmux"}},
+			{Timestamp: now.Add(-time.Second), Type: model.EventTypeStatus, Name: string(model.StatusRunning)},
+		},
+	}
+	if withIdentity {
+		run.Events = append(run.Events[:2], append([]*model.Event{
+			{Timestamp: now.Add(-2 * time.Second), Type: model.EventTypeArtifact, Name: "agent_session", Attrs: map[string]string{"backend": "codex", "id": "rollout-" + runID, "generation": "1"}},
+		}, run.Events[2:]...)...)
+	}
+	if reaped {
+		run.Events = append(run.Events, &model.Event{
+			Timestamp: now,
+			Type:      model.EventTypeNote,
+			Name:      model.DaemonNoticeEventName,
+			Attrs:     map[string]string{"kind": "session_reaped", "generation": "1", "reason": "idle_ttl"},
+		})
+	}
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+	return run
+}
+
+func TestHandleProtoListRunsDerivesSessionStateFromStoredFacts(t *testing.T) {
+	live := sessionStateTestRun(t, "issue-live", "run-live", false, true)
+	revivable := sessionStateTestRun(t, "issue-revivable", "run-revivable", true, true)
+	unrevivable := sessionStateTestRun(t, "issue-unrevivable", "run-unrevivable", true, false)
+	st := &mockStore{
+		runs: map[string]*model.Run{
+			live.Ref().String():        live,
+			revivable.Ref().String():   revivable,
+			unrevivable.Ref().String(): unrevivable,
+		},
+		issues: map[string]*model.Issue{},
+	}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoListRuns(&orchpb.ListRunsRequest{
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoListRuns() error = %s", resp.Error)
+	}
+
+	got := make(map[string]*orchpb.Run)
+	for _, run := range resp.GetListRuns().GetRuns() {
+		got[run.GetRunId()] = run
+	}
+	if state := got["run-live"].GetSessionState(); state != "live" {
+		t.Fatalf("live session_state = %q, want live", state)
+	}
+	if state := got["run-revivable"].GetSessionState(); state != "reaped(revivable)" {
+		t.Fatalf("revivable session_state = %q, want reaped(revivable)", state)
+	}
+	if state := got["run-unrevivable"].GetSessionState(); state != "reaped(unrevivable)" {
+		t.Fatalf("unrevivable session_state = %q, want reaped(unrevivable)", state)
+	}
+	if detail := got["run-unrevivable"].GetSessionStateDetail(); !strings.Contains(detail, "agent_session identity is not recorded") {
+		t.Fatalf("unrevivable session_state_detail = %q, want missing identity", detail)
+	}
+}
+
+func TestHandleProtoCaptureSessionServesReapedSnapshotWithoutMultiplexer(t *testing.T) {
+	previousCaptureMux := getCaptureMultiplexerForType
+	getCaptureMultiplexerForType = func(multiplexer.Type) captureMultiplexer {
+		panic("multiplexer must not be touched for a reaped capture")
+	}
+	t.Cleanup(func() { getCaptureMultiplexerForType = previousCaptureMux })
+
+	snapshotPath := t.TempDir() + "/final-snapshot.txt"
+	if err := os.WriteFile(snapshotPath, []byte("final pane output\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	run := sessionStateTestRun(t, "issue-reaped-capture", "run-reaped-capture", true, true)
+	reapNote := run.Events[len(run.Events)-1]
+	run.Events = append(run.Events[:len(run.Events)-1],
+		&model.Event{
+			Timestamp: reapNote.Timestamp.Add(-time.Millisecond),
+			Type:      model.EventTypeArtifact,
+			Name:      "session_snapshot",
+			Attrs:     map[string]string{"path": snapshotPath},
+		},
+		reapNote,
+	)
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+	st := &mockStore{runs: map[string]*model.Run{run.Ref().String(): run}}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoCaptureSession(&orchpb.CaptureSessionRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoCaptureSession() error = %s", resp.Error)
+	}
+	capture := resp.GetCaptureSession()
+	want := "session reaped at 2026-07-13T10:11:12Z (reason=idle_ttl); serving final snapshot\nfinal pane output\n"
+	if capture.GetContent() != want {
+		t.Fatalf("capture content = %q, want %q", capture.GetContent(), want)
+	}
+	if capture.GetSource() != "session_snapshot" {
+		t.Fatalf("capture source = %q, want session_snapshot", capture.GetSource())
+	}
+	if capture.GetTimestampUnix() != reapNote.Timestamp.Unix() {
+		t.Fatalf("capture timestamp = %d, want reap note %d", capture.GetTimestampUnix(), reapNote.Timestamp.Unix())
+	}
+}
+
+func TestHandleProtoCaptureSessionReapedSnapshotMissingNamesSidecar(t *testing.T) {
+	missingPath := t.TempDir() + "/missing-snapshot.txt"
+	run := sessionStateTestRun(t, "issue-missing-capture", "run-missing-capture", true, true)
+	reapNote := run.Events[len(run.Events)-1]
+	run.Events = append(run.Events[:len(run.Events)-1],
+		&model.Event{
+			Timestamp: reapNote.Timestamp.Add(-time.Millisecond),
+			Type:      model.EventTypeArtifact,
+			Name:      "session_snapshot",
+			Attrs:     map[string]string{"path": missingPath},
+		},
+		reapNote,
+	)
+	if err := run.DeriveState(); err != nil {
+		t.Fatalf("DeriveState() error = %v", err)
+	}
+	st := &mockStore{runs: map[string]*model.Run{run.Ref().String(): run}}
+	server := newTestServer(t, st)
+
+	resp := server.handleProtoCaptureSession(&orchpb.CaptureSessionRequest{
+		IssueId: string(run.IssueID),
+		RunId:   string(run.RunID),
+		Context: &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if resp.Ok {
+		t.Fatal("capture unexpectedly succeeded with a missing sidecar")
+	}
+	if !strings.Contains(resp.Error, missingPath) {
+		t.Fatalf("capture error = %q, want missing sidecar path %q", resp.Error, missingPath)
+	}
 }
 
 func (s *resolveRunTestStore) GetRun(ref *model.RunRef) (*model.Run, error) {
@@ -1401,6 +1554,37 @@ func TestHandleProtoWaitForRunsReturnsImmediatelyForShortID(t *testing.T) {
 	}
 	if waitResp.PrUrl != run.PRUrl {
 		t.Fatalf("pr_url = %q, want %q", waitResp.PrUrl, run.PRUrl)
+	}
+}
+
+func TestHandleProtoWaitForRunsReturnsImmediatelyForReapedRun(t *testing.T) {
+	origPollInterval := waitForRunsPollInterval
+	origTimeoutUnit := waitForRunsTimeoutUnit
+	waitForRunsPollInterval = time.Millisecond
+	waitForRunsTimeoutUnit = 100 * time.Millisecond
+	t.Cleanup(func() {
+		waitForRunsPollInterval = origPollInterval
+		waitForRunsTimeoutUnit = origTimeoutUnit
+	})
+
+	run := sessionStateTestRun(t, "issue-reaped-wait", "20260713-reaped-wait", true, true)
+	st := &mockStore{runs: map[string]*model.Run{run.Ref().String(): run}}
+	server := newTestServer(t, st)
+
+	started := time.Now()
+	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
+		RunRefs:        []string{run.Ref().String()},
+		TimeoutSeconds: 1,
+		Context:        &orchpb.RequestContext{ProjectId: testProjectID},
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoWaitForRuns() error = %s", resp.Error)
+	}
+	if elapsed := time.Since(started); elapsed >= waitForRunsTimeoutUnit {
+		t.Fatalf("reaped wait took %s, want prompt return before %s", elapsed, waitForRunsTimeoutUnit)
+	}
+	if got := resp.GetWaitForRuns().GetStatus(); got != string(model.StatusRunning) {
+		t.Fatalf("status = %q, want running lifecycle status", got)
 	}
 }
 
