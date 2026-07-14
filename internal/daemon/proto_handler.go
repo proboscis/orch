@@ -661,6 +661,10 @@ func isAmbiguousRunLookupError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "ambiguous")
 }
 
+func ambiguousRunRefResponse(ref string) *orchpb.Response {
+	return errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+}
+
 func parseWaitRunRef(ref string) (*model.RunRef, string, error) {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
@@ -674,8 +678,8 @@ func parseWaitRunRef(ref string) (*model.RunRef, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if parsed == nil || parsed.RunID == "" {
-		return nil, "", fmt.Errorf("invalid run ref %q: use a short ID or ISSUE#RUN", trimmed)
+	if parsed == nil {
+		return nil, "", fmt.Errorf("invalid run ref %q", trimmed)
 	}
 
 	return parsed, "", nil
@@ -689,10 +693,13 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 
 	projectID := projectIDFromContext(ctx)
 	resolveInStore := func(st store.Store) (*model.Run, error) {
-		if shortID != "" {
-			return st.GetRunByShortID(model.ShortID(shortID))
+		issueID := ""
+		runID := ""
+		if runRef != nil {
+			issueID = string(runRef.IssueID)
+			runID = string(runRef.RunID)
 		}
-		return st.GetRun(runRef)
+		return resolveRunForMutation(st, issueID, runID, shortID)
 	}
 
 	if projectID != "" {
@@ -706,7 +713,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 				return nil, errorResponse(fmt.Sprintf("run not found: %s", strings.TrimSpace(ref)))
 			}
 			if isAmbiguousRunLookupError(err) {
-				return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+				return nil, ambiguousRunRefResponse(ref)
 			}
 			return nil, errorResponse(s.storeOperationError(st, projectID, "run lookup", err))
 		}
@@ -721,7 +728,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 				continue
 			}
 			if isAmbiguousRunLookupError(err) {
-				return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+				return nil, ambiguousRunRefResponse(ref)
 			}
 			return nil, errorResponse(s.storeOperationError(st, "", "run lookup", err))
 		}
@@ -729,7 +736,7 @@ func (s *SocketServer) resolveWaitRunTarget(ctx *orchpb.RequestContext, ref stri
 			continue
 		}
 		if resolved != nil {
-			return nil, errorResponse(fmt.Sprintf("ambiguous run ref: %s", strings.TrimSpace(ref)))
+			return nil, ambiguousRunRefResponse(ref)
 		}
 		resolved = &waitRunTarget{ref: strings.TrimSpace(ref), run: run, store: st}
 	}
@@ -1349,6 +1356,9 @@ func (s *SocketServer) handleProtoGetRun(req *orchpb.GetRunRequest) *orchpb.Resp
 
 		resolved, err := st.GetRun(ref)
 		if err != nil {
+			if isAmbiguousRunLookupError(err) {
+				return ambiguousRunRefResponse(ref.String())
+			}
 			return errorResponse("not_found")
 		}
 		run = resolved
@@ -2298,6 +2308,13 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 			run, err = st.GetRun(ref)
 		}
 		if err != nil {
+			if isAmbiguousRunLookupError(err) {
+				ref := req.ShortId
+				if ref == "" {
+					ref = (&model.RunRef{IssueID: model.IssueID(req.IssueId), RunID: model.RunID(req.RunId)}).String()
+				}
+				return ambiguousRunRefResponse(ref)
+			}
 			return errorResponse("not_found")
 		}
 		runStore = st
@@ -2314,7 +2331,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 						continue
 					}
 					if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
-						return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
+						return ambiguousRunRefResponse(req.ShortId)
 					}
 					return errorResponse(s.storeOperationError(st, "", "short run lookup", err))
 				}
@@ -2334,7 +2351,7 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 			}
 			if run != nil {
 				if req.ShortId != "" {
-					return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
+					return ambiguousRunRefResponse(req.ShortId)
 				}
 				return errorResponse(fmt.Sprintf("ambiguous run ref: %s#%s", req.IssueId, req.RunId))
 			}
@@ -3167,6 +3184,9 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 
 		resolved, err := st.GetRunByShortID(model.ShortID(req.ShortId))
 		if err != nil {
+			if isAmbiguousRunLookupError(err) {
+				return ambiguousRunRefResponse(req.ShortId)
+			}
 			return errorResponse("not_found")
 		}
 		run = resolved
@@ -3178,7 +3198,7 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 					continue
 				}
 				if strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
-					return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
+					return ambiguousRunRefResponse(req.ShortId)
 				}
 				return errorResponse(s.storeOperationError(st, "", "short run lookup", err))
 			}
@@ -3186,7 +3206,7 @@ func (s *SocketServer) handleProtoGetRunByShortID(req *orchpb.GetRunByShortIDReq
 				continue
 			}
 			if run != nil {
-				return errorResponse(fmt.Sprintf("ambiguous short id: %s", req.ShortId))
+				return ambiguousRunRefResponse(req.ShortId)
 			}
 			run = resolved
 		}

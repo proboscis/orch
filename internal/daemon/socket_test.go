@@ -4479,7 +4479,7 @@ func TestRunLookupWithoutProjectContextReturnsSpacedAmbiguousMessages(t *testing
 		ShortId: shortID,
 		Context: &orchpb.RequestContext{},
 	})
-	shortMessage := fmt.Sprintf("ambiguous short id: %s", shortID)
+	shortMessage := fmt.Sprintf("ambiguous run ref: %s", shortID)
 	if shortResp.Ok || shortResp.Error != shortMessage {
 		t.Fatalf("short-ref response: ok=%v error=%q, want %q", shortResp.Ok, shortResp.Error, shortMessage)
 	}
