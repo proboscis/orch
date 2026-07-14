@@ -95,7 +95,7 @@ git -C "$PROJECT" push -u origin HEAD >/dev/null
 
 cd "$PROJECT"
 
-"$ORCH_BIN" master start >/dev/null
+"$ORCH_BIN" master start --listen 127.0.0.1:0 >/dev/null
 sleep 1
 "$ORCH_BIN" worker start >/dev/null
 sleep 1
@@ -117,11 +117,16 @@ RUN_OUT="$("$ORCH_BIN" --project "$PROJECT_ID" run "$ISSUE_ID" \
 printf '%s\n' "$RUN_OUT"
 printf '%s' "$RUN_OUT" | jq -e '.ok == true' >/dev/null
 
-CAPTURE_CMD="\"$ORCH_BIN\" --project \"$PROJECT_ID\" capture \"$ISSUE_ID#$RUN_ID\" --lines 50"
+PS_OUT="$("$ORCH_BIN" --project "$PROJECT_ID" ps --issue "$ISSUE_ID" --json)"
+printf '%s\n' "$PS_OUT"
+printf '%s' "$PS_OUT" | jq -e --arg issue "$ISSUE_ID" \
+  'any(.items[]; .issue_id == $issue)' >/dev/null
+
+CAPTURE_CMD="\"$ORCH_BIN\" --project \"$PROJECT_ID\" capture \"$ISSUE_ID\" --lines 50"
 FIRST_CAPTURE="$(capture_until_contains "$CAPTURE_CMD" "READY")"
 printf '%s\n' "$FIRST_CAPTURE"
 
-SEND_OUT="$("$ORCH_BIN" --json --project "$PROJECT_ID" send "$ISSUE_ID#$RUN_ID" <<EOF
+SEND_OUT="$("$ORCH_BIN" --json --project "$PROJECT_ID" send "$ISSUE_ID" <<EOF
 $MESSAGE_LINE_1
 $MESSAGE_LINE_2
 EOF
@@ -133,9 +138,20 @@ SECOND_CAPTURE="$(capture_until_contains "$CAPTURE_CMD" "ECHO:$MESSAGE_LINE_2")"
 printf '%s\n' "$SECOND_CAPTURE"
 printf '%s\n' "$SECOND_CAPTURE" | grep -F "ECHO:$MESSAGE_LINE_1" >/dev/null
 
-attach_expect_live "$ORCH_BIN" --project "$PROJECT_ID" attach "$ISSUE_ID#$RUN_ID"
+attach_expect_live "$ORCH_BIN" --project "$PROJECT_ID" attach "$ISSUE_ID"
 
-"$ORCH_BIN" --project "$PROJECT_ID" send "$ISSUE_ID#$RUN_ID" quit >/dev/null || true
-"$ORCH_BIN" --project "$PROJECT_ID" stop "$ISSUE_ID#$RUN_ID" --force >/dev/null
+(
+  sleep 1
+  "$ORCH_BIN" --project "$PROJECT_ID" stop "$ISSUE_ID" --force
+) &
+STOP_PID=$!
+
+WAIT_OUT="$("$ORCH_BIN" --project "$PROJECT_ID" wait "$ISSUE_ID" --timeout 60)"
+wait "$STOP_PID"
+printf '%s\n' "$WAIT_OUT"
+printf '%s' "$WAIT_OUT" | jq -e --arg issue "$ISSUE_ID" \
+  '.issue == $issue and .status == "canceled"' >/dev/null
+
+"$ORCH_BIN" --project "$PROJECT_ID" resolve "$ISSUE_ID" --force
 
 echo "RUN_CONTROL_LOCAL_E2E_OK"

@@ -240,6 +240,14 @@ type waitForRunsStatusStore struct {
 	calls int
 }
 
+type ambiguousShortIDStore struct {
+	*mockStore
+}
+
+func (s *ambiguousShortIDStore) GetRunByShortID(model.ShortID) (*model.Run, error) {
+	return nil, fmt.Errorf("ambiguous short ID")
+}
+
 type resolveRunTestStore struct {
 	mockStore
 	appendErr          error
@@ -1554,6 +1562,81 @@ func TestHandleProtoWaitForRunsReturnsImmediatelyForShortID(t *testing.T) {
 	}
 	if waitResp.PrUrl != run.PRUrl {
 		t.Fatalf("pr_url = %q, want %q", waitResp.PrUrl, run.PRUrl)
+	}
+}
+
+func TestHandleProtoWaitForRunsReturnsImmediatelyForIssueID(t *testing.T) {
+	run := &model.Run{
+		IssueID: "issue-latest",
+		RunID:   "20260101-010101",
+		Status:  model.StatusPROpen,
+		PRUrl:   "https://example.test/pr/456",
+	}
+	st := &resolveRunTestStore{
+		mockStore: mockStore{
+			runs: map[string]*model.Run{
+				run.Ref().String(): run,
+			},
+		},
+		latestRun: run,
+	}
+	server, ctx := newResolveRunHandlerTestServer(t, st)
+
+	resp := server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
+		RunRefs: []string{string(run.IssueID)},
+		Context: ctx,
+	})
+	if !resp.Ok {
+		t.Fatalf("handleProtoWaitForRuns() error = %s", resp.Error)
+	}
+
+	waitResp := resp.GetWaitForRuns()
+	if waitResp == nil {
+		t.Fatal("expected WaitForRuns response payload")
+	}
+	if waitResp.RunId != string(run.ShortID()) {
+		t.Fatalf("run_id = %q, want %q", waitResp.RunId, run.ShortID())
+	}
+	if waitResp.Status != string(model.StatusPROpen) {
+		t.Fatalf("status = %q, want %q", waitResp.Status, model.StatusPROpen)
+	}
+	if waitResp.Issue != string(run.IssueID) {
+		t.Fatalf("issue = %q, want %q", waitResp.Issue, run.IssueID)
+	}
+	if waitResp.PrUrl != run.PRUrl {
+		t.Fatalf("pr_url = %q, want %q", waitResp.PrUrl, run.PRUrl)
+	}
+}
+
+func TestRunControlHandlersReturnTheSameAmbiguousRefError(t *testing.T) {
+	st := &ambiguousShortIDStore{mockStore: &mockStore{}}
+	server := NewSocketServer(nil, nil)
+	registerRepoContextForTest(t, server, "project-ambiguous-run", t.TempDir(), st)
+	ctx := &orchpb.RequestContext{ProjectId: "project-ambiguous-run"}
+	const shortID = "ab"
+	const want = "ambiguous run ref: ab"
+
+	responses := map[string]*orchpb.Response{
+		"wait": server.handleProtoWaitForRuns(&orchpb.WaitForRunsRequest{
+			RunRefs: []string{shortID},
+			Context: ctx,
+		}),
+		"capture lookup": server.handleProtoGetRunByShortID(&orchpb.GetRunByShortIDRequest{
+			ShortId: shortID,
+			Context: ctx,
+		}),
+		"attach": server.handleProtoGetAttachInfo(&orchpb.GetAttachInfoRequest{
+			ShortId: shortID,
+			Context: ctx,
+		}),
+	}
+
+	for name, resp := range responses {
+		t.Run(name, func(t *testing.T) {
+			if resp.Ok || resp.Error != want {
+				t.Fatalf("response: ok=%v error=%q, want %q", resp.Ok, resp.Error, want)
+			}
+		})
 	}
 }
 
