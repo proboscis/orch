@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -43,6 +44,7 @@ var (
 	managedWorkerExecutable         = os.Executable
 	managedWorkerLaunchConfig       = defaultManagedWorkerLaunchConfig
 	lookupManagedWorkerRegistration = defaultManagedWorkerRegistrationLookup
+	listManagedWorkerProcesses      = defaultListManagedWorkerProcesses
 )
 
 type ManagedOptions struct {
@@ -59,13 +61,13 @@ type ManagedStartResult struct {
 }
 
 type ManagedState struct {
-	Version         int       `json:"version"`
-	Key             string    `json:"key"`
-	WorkerID        string    `json:"worker_id"`
-	RemoteAddr      string    `json:"remote_addr,omitempty"`
-	LogPath         string    `json:"log_path,omitempty"`
-	PID             int       `json:"pid,omitempty"`
-	ProcessState    string    `json:"process_state,omitempty"`
+	Version           int       `json:"version"`
+	Key               string    `json:"key"`
+	WorkerID          string    `json:"worker_id"`
+	RemoteAddr        string    `json:"remote_addr,omitempty"`
+	LogPath           string    `json:"log_path,omitempty"`
+	PID               int       `json:"pid,omitempty"`
+	ProcessState      string    `json:"process_state,omitempty"`
 	StartedAt         time.Time `json:"started_at,omitempty"`
 	RegisteredAt      time.Time `json:"registered_at,omitempty"`
 	LastHeartbeatAt   time.Time `json:"last_heartbeat_at,omitempty"`
@@ -124,6 +126,11 @@ type managedRuntimeStateWriter struct {
 	pid        int
 }
 
+type managedWorkerProcess struct {
+	PID     int
+	Command string
+}
+
 func StartManaged(opts ManagedOptions) (*ManagedStartResult, error) {
 	profile, err := resolveManagedProfile(opts)
 	if err != nil {
@@ -132,8 +139,30 @@ func StartManaged(opts ManagedOptions) (*ManagedStartResult, error) {
 	if err := ensureManagedDirs(); err != nil {
 		return nil, err
 	}
+	identityLock, err := acquireManagedWorkerIdentityLock(profile.WorkerID)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseManagedWorkerIdentityLock(identityLock)
 
 	state, _ := loadManagedState(profile.StatePath)
+	keepPID := 0
+	if state != nil && state.PID > 0 && daemon.IsProcessRunning(state.PID) {
+		keepPID = state.PID
+	}
+
+	// A worker ID names one host-level supervisor, independent of which
+	// spelling/profile was used to reach the master. Reconcile historical
+	// profiles before inspecting the requested profile so a changed --remote
+	// cannot leave the previous process competing for the same worker ID.
+	if _, err := stopManagedProfilesForWorkerID(profile.WorkerID, profile.StatePath); err != nil {
+		return nil, err
+	}
+	if _, err := stopUnmanagedWorkerProcesses(profile.WorkerID, keepPID); err != nil {
+		return nil, err
+	}
+
+	state, _ = loadManagedState(profile.StatePath)
 	if state != nil && state.LogPath != "" {
 		profile.LogPath = state.LogPath
 	}
@@ -234,6 +263,11 @@ func StopManaged(opts ManagedOptions, all bool) (int, error) {
 			}
 			stopped += count
 		}
+		orphaned, err := stopAllUnmanagedWorkerProcesses()
+		stopped += orphaned
+		if err != nil {
+			return stopped, err
+		}
 		return stopped, nil
 	}
 
@@ -241,7 +275,35 @@ func StopManaged(opts ManagedOptions, all bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return stopManagedProfile(profile)
+	if err := ensureManagedDirs(); err != nil {
+		return 0, err
+	}
+	identityLock, err := acquireManagedWorkerIdentityLock(profile.WorkerID)
+	if err != nil {
+		return 0, err
+	}
+	defer releaseManagedWorkerIdentityLock(identityLock)
+
+	stopped, err := stopManagedProfilesForWorkerID(profile.WorkerID, "")
+	if err != nil {
+		return stopped, err
+	}
+	unmanagedStopped, err := stopUnmanagedWorkerProcesses(profile.WorkerID, 0)
+	stopped += unmanagedStopped
+	if err != nil {
+		return stopped, err
+	}
+
+	// Preserve the unmanaged-registration diagnostic when no local profile
+	// exists for this identity.
+	profiles, err := listManagedProfilesForWorkerID(profile.WorkerID)
+	if err != nil {
+		return stopped, err
+	}
+	if len(profiles) == 0 && stopped == 0 {
+		return stopManagedProfile(profile)
+	}
+	return stopped, nil
 }
 
 func StatusManaged(opts ManagedOptions) (*ManagedStatus, error) {
@@ -620,6 +682,192 @@ func listManagedProfiles() ([]managedProfile, error) {
 		})
 	}
 	return profiles, nil
+}
+
+func listManagedProfilesForWorkerID(workerID string) ([]managedProfile, error) {
+	workerID = strings.TrimSpace(workerID)
+	profiles, err := listManagedProfiles()
+	if err != nil {
+		return nil, err
+	}
+
+	matches := make([]managedProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.WorkerID) == workerID {
+			matches = append(matches, profile)
+		}
+	}
+	return matches, nil
+}
+
+func stopManagedProfilesForWorkerID(workerID, exceptStatePath string) (int, error) {
+	profiles, err := listManagedProfilesForWorkerID(workerID)
+	if err != nil {
+		return 0, err
+	}
+
+	stopped := 0
+	for _, profile := range profiles {
+		if exceptStatePath != "" && profile.StatePath == exceptStatePath {
+			continue
+		}
+		count, err := stopManagedProfile(profile)
+		if err != nil {
+			return stopped, err
+		}
+		stopped += count
+	}
+	return stopped, nil
+}
+
+func stopUnmanagedWorkerProcesses(workerID string, keepPID int) (int, error) {
+	processes, err := listManagedWorkerProcesses()
+	if err != nil {
+		return 0, fmt.Errorf("list local worker processes for %q: %w", workerID, err)
+	}
+
+	stopped := 0
+	for _, process := range processes {
+		if process.PID <= 0 || process.PID == os.Getpid() || process.PID == keepPID {
+			continue
+		}
+		if !managedWorkerCommandHasIdentity(process.Command, workerID) || !daemon.IsProcessRunning(process.PID) {
+			continue
+		}
+		if err := stopManagedProcess(process.PID); err != nil {
+			return stopped, fmt.Errorf("stop orphaned worker %q pid %d: %w", workerID, process.PID, err)
+		}
+		stopped++
+	}
+	return stopped, nil
+}
+
+func stopAllUnmanagedWorkerProcesses() (int, error) {
+	processes, err := listManagedWorkerProcesses()
+	if err != nil {
+		return 0, fmt.Errorf("list local worker processes: %w", err)
+	}
+
+	stopped := 0
+	for _, process := range processes {
+		if process.PID <= 0 || process.PID == os.Getpid() || !daemon.IsProcessRunning(process.PID) {
+			continue
+		}
+		workerID, ok := managedWorkerCommandIdentity(process.Command)
+		if !ok {
+			continue
+		}
+		if err := stopManagedProcess(process.PID); err != nil {
+			return stopped, fmt.Errorf("stop orphaned worker %q pid %d: %w", workerID, process.PID, err)
+		}
+		stopped++
+	}
+	return stopped, nil
+}
+
+func defaultListManagedWorkerProcesses() ([]managedWorkerProcess, error) {
+	psPath := "/bin/ps"
+	if _, err := os.Stat(psPath); err != nil {
+		psPath = "/usr/bin/ps"
+	}
+	output, err := exec.Command(psPath, "-ww", "-axo", "pid=,args=").Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	processes := make([]managedWorkerProcess, 0, len(lines))
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return nil, fmt.Errorf("parse ps pid %q: %w", fields[0], err)
+		}
+		processes = append(processes, managedWorkerProcess{
+			PID:     pid,
+			Command: strings.Join(fields[1:], " "),
+		})
+	}
+	return processes, nil
+}
+
+func managedWorkerCommandHasIdentity(command, workerID string) bool {
+	actualWorkerID, ok := managedWorkerCommandIdentity(command)
+	return ok && strings.TrimSpace(actualWorkerID) == strings.TrimSpace(workerID)
+}
+
+func managedWorkerCommandIdentity(command string) (string, bool) {
+	args := strings.Fields(strings.TrimSpace(command))
+	if len(args) < 3 {
+		return "", false
+	}
+	executable := strings.TrimSuffix(filepath.Base(args[0]), ".exe")
+	if executable != "orch" && !strings.HasPrefix(executable, "orch-") {
+		return "", false
+	}
+
+	workerRunIndex := -1
+	for i := 1; i+1 < len(args); i++ {
+		if args[i] == "worker" && args[i+1] == "run" {
+			workerRunIndex = i
+			break
+		}
+		if (args[i] == "--project" || args[i] == "--remote" || args[i] == "--log-level") && i+1 < len(args) {
+			i++
+			continue
+		}
+		if !strings.HasPrefix(args[i], "-") {
+			// The first subcommand is not `worker run`; do not match text from
+			// another command's positional arguments (for example `orch send`).
+			return "", false
+		}
+	}
+	if workerRunIndex < 0 {
+		return "", false
+	}
+
+	actualWorkerID := ""
+	for i := workerRunIndex + 2; i < len(args); i++ {
+		switch {
+		case args[i] == "--worker-id" && i+1 < len(args):
+			actualWorkerID = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--worker-id="):
+			actualWorkerID = strings.TrimPrefix(args[i], "--worker-id=")
+		}
+	}
+	if actualWorkerID == "" {
+		host, _ := currentWorkerHostname()
+		if strings.TrimSpace(host) == "" {
+			host = "localhost"
+		}
+		actualWorkerID = daemon.HostWorkerID(host)
+	}
+	return strings.TrimSpace(actualWorkerID), true
+}
+
+func acquireManagedWorkerIdentityLock(workerID string) (*os.File, error) {
+	lockPath := filepath.Join(xdg.WorkersRuntimeDir(), managedProfileKey(workerID, "")+".lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open managed worker identity lock for %q: %w", workerID, err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lockFile.Close()
+		return nil, fmt.Errorf("lock managed worker identity %q: %w", workerID, err)
+	}
+	return lockFile, nil
+}
+
+func releaseManagedWorkerIdentityLock(lockFile *os.File) {
+	if lockFile == nil {
+		return
+	}
+	_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	_ = lockFile.Close()
 }
 
 func stopManagedProfile(profile managedProfile) (int, error) {

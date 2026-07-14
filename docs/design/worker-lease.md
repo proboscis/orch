@@ -141,6 +141,7 @@ enrichment must use a batched per-host operation rather than per-run leases.
 | LL5 snapshot sufficiency | a worker executes any effect using only the lease payload (RunSnapshot); it never reads its local store for master-owned runs (PR #457's contract) |
 | LL6 start target confinement | every `start_run` resolves a `TargetWorkerID` before lease acquisition; empty/`local` targets resolve to the master's host worker, named targets resolve through `config.targets`, and neither may fall back to another worker |
 | LL7 worktree host confinement | single-run worktree inspect/remove executes on the run's target worker; an unavailable worker or failed stat/git operation is returned with host/cause and is never converted to `exists=false` or an absent skip; list paths leave worktree existence unpopulated pending a batched per-host operation |
+| LL8 local worker identity convergence | `worker-id` is the host-local supervisor identity, independent of master connection profile; after `StartManaged(w, profile)` at most that profile's process is live for `w`, and after `StopManaged(w)` no local `orch worker run` process for `w` is live, even when its profile state is missing |
 
 ## Verification and maintenance
 
@@ -151,5 +152,8 @@ executes against a real registered worktree, while
 `TestRemoteGetRunReportsWorkerObservedWorktreeExists`,
 `TestRemoteCleanRunWorktreeUsesExecutionHostWorker`, and
 `TestRemoteGetRunWorktreeObservationFailureIsExplicit` prove master routing and
-fail-clear propagation. Lease-map mutation remains confined by the
+fail-clear propagation. LL8 is covered by
+`TestStopStartManagedConvergesSameWorkerIDAcrossProfiles`, which removes the
+old profile state to create an orphan and proves a stop/start cycle converges
+to one live process. Lease-map mutation remains confined by the
 `worker-lease-mutation-surface` semgrep rule.

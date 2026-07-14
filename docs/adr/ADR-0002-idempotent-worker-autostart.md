@@ -84,6 +84,32 @@ untargeted run. Operators who want strict topology use the off-switch.
 on the master process it disables the reconciler, on the client it disables
 the pre-dispatch ensure. Default: enabled.
 
+### 4. Worker identity is host-local and profile-independent
+
+**Invariant: one host has at most one live `orch worker run` process for a
+given `worker-id`.** The master connection string is configuration of that
+worker, not part of its identity.
+
+`worker start` and `worker stop` serialize lifecycle changes by `worker-id`.
+They reconcile every surviving managed profile for that identity and inspect
+the local process table for an exact `orch worker run --worker-id ...` match.
+The process-table check is required because an older binary, a changed
+`--remote` spelling, or deleted state/PID metadata can otherwise leave a live
+supervisor outside the current profile. `worker start` preserves and reuses
+the requested profile's one known-live PID, stops every competing PID, then
+launches only if no requested-profile process remains. `worker stop` removes
+all matching local PIDs, including state-less ones; `worker stop --all` applies
+the same rule to every local worker identity.
+
+Master-side duplicate eviction is not the enforcement layer in this decision.
+The worker protocol currently carries only `worker_id` on register, heartbeat,
+lease, acknowledgement, and unregister calls. Once two processes claim that
+ID, the master cannot distinguish which request belongs to which process, so
+it cannot selectively shut down the older one without introducing a new
+connection-instance identity across the entire lease protocol. Host-local
+process ownership is already the managed lifecycle boundary and can also reap
+older binaries that do not understand a new protocol response.
+
 ## Resulting UX
 
 | Mode | Before | After |
@@ -108,6 +134,10 @@ the pre-dispatch ensure. Default: enabled.
   single-machine setups; docs and the embedded tutorial shrink accordingly.
 - The reconciler runs strictly inside the lease-failure path: zero cost when
   workers are healthy, no background polling, no new periodic loop.
+- Changing the configured master for a `worker-id` is a replacement, not a
+  second concurrent worker. The old supervisor is stopped before the new
+  profile starts, preventing two processes from racing for the same lease
+  identity after a master restart.
 
 ### Environment normalization decision (2026-07-13)
 
