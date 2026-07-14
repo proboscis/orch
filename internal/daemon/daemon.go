@@ -166,7 +166,7 @@ func (d *Daemon) Run() error {
 	d.logger = log.New(logFile, "", log.LstdFlags)
 
 	if err := d.initBinaryTracking(); err != nil {
-		d.logger.Printf("warning: failed to init binary tracking: %v", err)
+		return fmt.Errorf("failed to record daemon launch metadata: %w", err)
 	}
 
 	cfg, err := config.Load()
@@ -224,7 +224,7 @@ func (d *Daemon) Run() error {
 	d.socketServer.onStatusChange = d.fireStatusChange
 	d.socketServer.SetGitHubBackend(d.githubBackend)
 	if err := d.socketServer.Start(); err != nil {
-		d.logger.Printf("warning: failed to start socket server: %v", err)
+		return fmt.Errorf("failed to start socket server: %w", err)
 	}
 
 	if d.githubBackend != nil {
@@ -308,12 +308,14 @@ func (d *Daemon) initBinaryTracking() error {
 }
 
 func (d *Daemon) writeMetadata() error {
+	listenAddr := d.listenAddr
 	meta := DaemonMetadata{
-		PID:       os.Getpid(),
-		StartedAt: time.Now(),
-		ExecPath:  d.executablePath,
-		ExecMtime: d.startupMtime,
-		Version:   2, // XDG global daemon version
+		PID:        os.Getpid(),
+		StartedAt:  time.Now(),
+		ExecPath:   d.executablePath,
+		ExecMtime:  d.startupMtime,
+		Version:    3,
+		ListenAddr: &listenAddr,
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -345,7 +347,14 @@ func (d *Daemon) checkBinaryStaleness() {
 
 func (d *Daemon) restartWithNewBinary() error {
 	d.logger.Printf("restarting daemon with new binary via exec...")
-	args := []string{d.executablePath, "daemon", "run"}
+	meta, err := ReadMetadata("")
+	if err != nil {
+		return fmt.Errorf("failed to read recorded launch mode: %w", err)
+	}
+	if meta.ListenAddr == nil {
+		return fmt.Errorf("daemon launch mode is not recorded in metadata schema version %d", meta.Version)
+	}
+	args := daemonRunArgs(d.executablePath, *meta.ListenAddr)
 	return syscall.Exec(d.executablePath, args, os.Environ())
 }
 
@@ -548,10 +557,7 @@ func StartInBackgroundWithListen(listenAddr string) (int, error) {
 		return 0, fmt.Errorf("failed to open stderr log: %w", err)
 	}
 
-	args := []string{executable, "daemon", "run"}
-	if strings.TrimSpace(listenAddr) != "" {
-		args = append(args, "--listen", strings.TrimSpace(listenAddr))
-	}
+	args := daemonRunArgs(executable, listenAddr)
 
 	cmd := &exec.Cmd{
 		Path: executable,
@@ -577,6 +583,10 @@ func StartInBackgroundWithListen(listenAddr string) (int, error) {
 	time.Sleep(100 * time.Millisecond)
 
 	return cmd.Process.Pid, nil
+}
+
+func daemonRunArgs(executable, listenAddr string) []string {
+	return []string{executable, "daemon", "run", "--listen", strings.TrimSpace(listenAddr)}
 }
 
 // Kill stops the global daemon.

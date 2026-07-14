@@ -27,7 +27,8 @@ type DaemonMetadata struct {
 	ExecPath    string    `json:"exec_path"`
 	ExecMtime   time.Time `json:"exec_mtime"`
 	ProjectRoot string    `json:"project_root,omitempty"` // Deprecated: for legacy compat
-	Version     int       `json:"version,omitempty"`      // Schema version (2 = XDG global daemon)
+	Version     int       `json:"version,omitempty"`      // Schema version (3 = recorded launch mode)
+	ListenAddr  *string   `json:"listen_addr,omitempty"`  // nil means pre-v3 metadata; empty means no TCP listener
 }
 
 // DaemonInfo contains information about a running daemon for listing
@@ -248,12 +249,58 @@ func RestartDaemon(_ string) error {
 		return nil
 	}
 
-	process, err := os.FindProcess(pid)
+	meta, err := ReadMetadata("")
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot restart daemon pid %d: failed to read launch metadata: %w", pid, err)
+	}
+	if meta.ListenAddr == nil {
+		return fmt.Errorf("cannot restart daemon pid %d automatically: its launch mode was not recorded (metadata schema version %d); restart it manually with the original command, for example: orch master kill && orch master start --listen <original-address>", pid, meta.Version)
 	}
 
-	return process.Signal(syscall.SIGHUP)
+	listenAddr := *meta.ListenAddr
+	if err := KillDaemon(""); err != nil {
+		return fmt.Errorf("failed to stop daemon pid %d before restart: %w", pid, err)
+	}
+
+	newPID, err := StartInBackgroundWithListen(listenAddr)
+	if err != nil {
+		return fmt.Errorf("failed to start daemon with recorded listen address %q: %w", listenAddr, err)
+	}
+	if err := waitForRestartedDaemon(newPID, meta.StartedAt, listenAddr, 5*time.Second); err != nil {
+		return fmt.Errorf("daemon restart failed with recorded listen address %q: %w", listenAddr, err)
+	}
+	return nil
+}
+
+func waitForRestartedDaemon(pid int, previousStart time.Time, listenAddr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	observedNewMetadata := false
+	for time.Now().Before(deadline) {
+		meta, err := ReadMetadata("")
+		if err == nil && meta.StartedAt.After(previousStart) {
+			observedNewMetadata = true
+			if meta.ListenAddr == nil || *meta.ListenAddr != listenAddr {
+				return fmt.Errorf("restarted daemon recorded a different launch mode")
+			}
+
+			if GetRunningPID("") == pid {
+				client := NewProtoClient("")
+				client.SetTimeout(500 * time.Millisecond)
+				pingErr := client.Ping()
+				_ = client.Close()
+				if pingErr == nil {
+					return nil
+				}
+			}
+		}
+
+		if observedNewMetadata && !IsProcessRunning(pid) {
+			return fmt.Errorf("daemon process pid %d exited before becoming ready (see %s and %s)", pid, xdg.LogPath(), xdg.StderrLogPath())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return fmt.Errorf("daemon process pid %d did not become ready within %s (see %s and %s)", pid, timeout, xdg.LogPath(), xdg.StderrLogPath())
 }
 
 func globalRegistryPath() string {

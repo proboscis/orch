@@ -54,6 +54,7 @@ const (
 var noDaemonCommands = map[string]bool{
 	"show":                 true,
 	"daemon":               true,
+	"daemon-restart":       true,
 	"master":               true,
 	"worker":               true,
 	"list":                 true,

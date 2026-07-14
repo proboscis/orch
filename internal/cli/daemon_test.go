@@ -96,6 +96,17 @@ func TestRunDaemonKillProjectFlagWarnsButIgnored(t *testing.T) {
 	}
 }
 
+func TestDaemonRestartFailsWithoutRunningDaemon(t *testing.T) {
+	setIsolatedXDG(t)
+	resetGlobalOpts(t)
+
+	cmd := newDaemonRestartCmd()
+	err := cmd.RunE(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "no running daemon found") {
+		t.Fatalf("daemon-restart error = %v, want explicit no-running-daemon error", err)
+	}
+}
+
 func TestDaemonRepoRegisterCommandDocumentsProjectPath(t *testing.T) {
 	cmd := newDaemonRepoRegisterCmd()
 
