@@ -201,6 +201,9 @@ func newWorkerStartCmd() *cobra.Command {
 				} else {
 					fmt.Printf("Started worker: %s (pid: %d)\n", resp.WorkerID, resp.PID)
 				}
+				if len(resp.OrphanPIDs) > 0 {
+					fmt.Printf("Stopped orphan worker processes claiming %s: %s\n", resp.WorkerID, formatWorkerPIDs(resp.OrphanPIDs))
+				}
 				if resp.LogPath != "" {
 					fmt.Printf("Log: %s\n", resp.LogPath)
 				}
@@ -218,18 +221,21 @@ func newWorkerStopCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop managed orch-worker host process",
+		Long: `Stop managed orch-worker host process.
+
+Stopping reconciles the worker-id invariant: besides the supervised process
+recorded in the local state file, any other process on this host claiming the
+same worker id (started manually, by an older binary, or with a different
+--remote connection string) is stopped as well, so no orphan keeps contending
+for the worker registration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			stoppedCount, err := worker.StopManaged(worker.ManagedOptions{
+			resp, err := worker.StopManaged(worker.ManagedOptions{
 				WorkerID:   workerID,
 				RemoteAddr: getRemoteAddr(),
 			}, stopAll)
 			if err != nil {
 				return err
 			}
-			resp := struct {
-				OK           bool `json:"ok"`
-				StoppedCount int  `json:"stopped_count"`
-			}{OK: true, StoppedCount: stoppedCount}
 
 			if globalOpts.JSON {
 				enc := json.NewEncoder(os.Stdout)
@@ -239,13 +245,24 @@ func newWorkerStopCmd() *cobra.Command {
 
 			if !globalOpts.Quiet {
 				fmt.Printf("Stopped workers: %d\n", resp.StoppedCount)
+				if len(resp.OrphanPIDs) > 0 {
+					fmt.Printf("Stopped orphan worker processes: %s\n", formatWorkerPIDs(resp.OrphanPIDs))
+				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&workerID, "worker-id", "", "worker id to stop (default: local host worker)")
-	cmd.Flags().BoolVar(&stopAll, "all", false, "stop all managed workers")
+	cmd.Flags().BoolVar(&stopAll, "all", false, "stop all workers on this host (managed workers plus any orphan orch worker processes)")
 	return cmd
+}
+
+func formatWorkerPIDs(pids []int) string {
+	parts := make([]string, 0, len(pids))
+	for _, pid := range pids {
+		parts = append(parts, fmt.Sprintf("%d", pid))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func humanizeWorkerTime(ts time.Time) string {

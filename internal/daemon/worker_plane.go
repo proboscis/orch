@@ -281,6 +281,16 @@ func (s *SocketServer) registerWorker(workerID, workerType, host, mode string, c
 	registeredAt := now
 	if existing, ok := s.workers[workerID]; ok {
 		registeredAt = existing.RegisteredAt
+		// Two processes claiming one worker id are indistinguishable to the
+		// master (registration carries no instance identity), so duplicates
+		// can only be surfaced, not fenced, here: a re-register while the
+		// previous registration is still heartbeat-fresh is either a fast
+		// reconnect of the same process or a second process contending for
+		// the id. The newest registration wins either way; the host-side
+		// `worker start`/`worker stop` reconcile is what removes duplicates.
+		if s.workerIsActive(existing, now) && s.logger != nil {
+			s.logger.Printf("WARNING: worker %q re-registered from host %q while previous registration (host %q, last heartbeat %s ago) was still active — possible duplicate worker processes claiming the same worker id; newest registration wins", workerID, host, existing.Host, now.Sub(existing.LastHeartbeat).Round(time.Millisecond))
+		}
 	}
 
 	worker := &WorkerRegistration{

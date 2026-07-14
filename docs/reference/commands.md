@@ -903,6 +903,14 @@ Start a managed orch-worker host process. Usually automatic
 dispatch to a remote master auto-starts the local worker for it. Manual start
 remains for other hosts and for `ORCH_WORKER_AUTOSTART=0`.
 
+Worker identity is the worker ID, per host: before starting (or reusing) the
+managed process, orch reconciles the invariant that at most one local process
+claims the target worker ID. Any other claimant — started manually with
+`orch worker run`, by an older binary generation, or with a different
+`--remote` connection string — is stopped first and reported as
+`orphan_pids`. To run two workers on one host intentionally, give them
+distinct `--worker-id` values.
+
 ```bash
 orch worker start [flags]
 ```
@@ -927,13 +935,20 @@ orch worker status [flags]
 
 Stop a managed orch-worker host process.
 
+Stopping reconciles the worker-ID invariant: besides the supervised process
+recorded in the local state file, any other local process claiming the same
+worker ID is stopped as well (reported as `orphan_pids`), so no orphan keeps
+contending for the worker registration after a stop/start cycle. `--all`
+additionally sweeps every remaining `orch worker run` process on the host,
+including ones no state file records.
+
 ```bash
 orch worker stop [flags]
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--all` | Stop all managed workers |
+| `--all` | Stop all workers on this host (managed workers plus any orphan orch worker processes) |
 | `--worker-id <id>` | Worker ID to stop (default: local host worker) |
 
 ---
