@@ -4068,6 +4068,49 @@ func TestRegisterRepoAPIRejectsPathWithoutRemote(t *testing.T) {
 	if !strings.Contains(resp.Error, "project identity required") {
 		t.Fatalf("expected project identity guidance, got: %s", resp.Error)
 	}
+	if !strings.Contains(resp.Error, "configure git remote origin") {
+		t.Fatalf("expected origin remote guidance, got: %s", resp.Error)
+	}
+	if strings.Contains(resp.Error, "does not exist on daemon host") {
+		t.Fatalf("existing path should not report a daemon-host path error: %s", resp.Error)
+	}
+}
+
+func TestRegisterRepoAPIRejectsPathMissingOnDaemonHost(t *testing.T) {
+	cleanup := setupXDGTestEnv(t)
+	defer cleanup()
+	setDaemonHostname(t, "remote-master")
+
+	logger := log.New(io.Discard, "", 0)
+	server := NewSocketServer(nil, logger)
+	if err := server.Start(); err != nil {
+		t.Fatalf("failed to start server: %v", err)
+	}
+	defer server.Stop()
+
+	missingPath := filepath.Join(t.TempDir(), "client-only-repo")
+	resp := sendProtoRequest(t, &orchpb.Request{
+		Request: &orchpb.Request_RegisterRepo{
+			RegisterRepo: &orchpb.RegisterRepoRequest{ProjectRoot: missingPath},
+		},
+	})
+
+	if resp.Ok {
+		t.Fatal("expected register repo to fail for path missing on daemon host")
+	}
+	for _, want := range []string{
+		missingPath,
+		"does not exist on daemon host",
+		"remote-master",
+		"from the daemon host",
+	} {
+		if !strings.Contains(resp.Error, want) {
+			t.Fatalf("expected error to contain %q, got: %s", want, resp.Error)
+		}
+	}
+	if strings.Contains(resp.Error, "configure git remote origin") {
+		t.Fatalf("missing daemon path should not report origin remote guidance: %s", resp.Error)
+	}
 }
 
 func TestDeriveRepoID(t *testing.T) {

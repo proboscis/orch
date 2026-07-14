@@ -3327,6 +3327,17 @@ func (s *SocketServer) handleProtoRegisterRepo(req *orchpb.RegisterRepoRequest) 
 		if projectRoot == "" {
 			return errorResponse("repo URL required")
 		}
+		if _, err := os.Stat(projectRoot); os.IsNotExist(err) {
+			daemonHost, hostnameErr := currentDaemonHostname()
+			if hostnameErr != nil || strings.TrimSpace(daemonHost) == "" {
+				daemonHost = "unknown"
+			}
+			return errorResponse(fmt.Sprintf(
+				"path %q does not exist on daemon host %q; run 'orch daemon repo register <path>' from the daemon host",
+				projectRoot,
+				strings.TrimSpace(daemonHost),
+			))
+		}
 		repoID, err = s.repoIDForProjectRoot(projectRoot)
 		if err != nil {
 			return errorResponse(err.Error())

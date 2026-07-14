@@ -144,7 +144,7 @@ the agent commit, push, and open a PR — the run then parks at `pr_open`.
 
 | Error | Fix |
 |-------|-----|
-| `project identity required` | repo has no `origin` remote, or you are outside the repo |
+| `project identity required` | repo has no `origin` remote, or you are outside the repo. With a remote master, `PROJECT_PATH` must exist on the daemon host; run `orch daemon repo register <path>` there with the daemon-local checkout path. |
 | `unknown project_id "…"` | run `orch daemon repo register "$(pwd)"` |
 | `no active worker on host "…"` | should not happen locally (workers auto-start); check `ORCH_WORKER_AUTOSTART`, or run `orch worker start` |
 | `agent not available: … (worker …, host …; probe "…"; PATH=…)` | the named worker cannot run that agent CLI — the probe and PATH in the error say why; fix PATH or log in on that host, then restart the worker from a login shell |
