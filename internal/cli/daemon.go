@@ -425,7 +425,7 @@ func newDaemonRestartCmd() *cobra.Command {
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !daemon.IsRunning("") {
-				return nil
+				return fmt.Errorf("cannot restart daemon: no running daemon found; start it with the required launch mode, for example: orch master start --listen <address>")
 			}
 
 			return daemon.RestartDaemon("")

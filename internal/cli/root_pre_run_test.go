@@ -15,6 +15,8 @@ func TestShouldAutoStartDaemonForCommand(t *testing.T) {
 	start := &cobra.Command{Use: "start"}
 	master.AddCommand(start)
 	root.AddCommand(master)
+	daemonRestart := &cobra.Command{Use: "daemon-restart"}
+	root.AddCommand(daemonRestart)
 
 	issue := &cobra.Command{Use: "issue"}
 	list := &cobra.Command{Use: "list"}
@@ -31,6 +33,7 @@ func TestShouldAutoStartDaemonForCommand(t *testing.T) {
 		{name: "run remote skips autostart", cmd: run, remoteAddr: "remotebox:7777", want: false},
 		{name: "master start skips autostart", cmd: start, remoteAddr: "", want: false},
 		{name: "master command skips autostart", cmd: master, remoteAddr: "", want: false},
+		{name: "daemon restart skips autostart", cmd: daemonRestart, remoteAddr: "", want: false},
 		{name: "issue list keeps existing skip behavior", cmd: list, remoteAddr: "", want: false},
 	}
 

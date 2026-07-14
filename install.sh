@@ -269,7 +269,8 @@ restart_daemon_after_upgrade() {
     if "${INSTALL_DIR}/orch" daemon-restart; then
         success "Restarted orch daemon"
     else
-        warn "Could not restart orch daemon automatically; run: ${INSTALL_DIR}/orch daemon-restart"
+        warn "Could not restart orch daemon automatically; restart it manually with its original start command"
+        return 1
     fi
 }
 
