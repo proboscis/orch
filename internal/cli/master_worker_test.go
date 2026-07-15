@@ -119,6 +119,73 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	}
 }
 
+func TestWorkerRunReachesLoopWhileAvailabilityProbeIsHung(t *testing.T) {
+	origRequire := requireDaemonForWorker
+	origRun := runExternalWorkerLoop
+	origLogAvailability := logWorkerAgentAvailability
+	t.Cleanup(func() {
+		requireDaemonForWorker = origRequire
+		runExternalWorkerLoop = origRun
+		logWorkerAgentAvailability = origLogAvailability
+	})
+
+	requireDaemonForWorker = func() (worker.Client, error) {
+		return &mockWorkerClient{}, nil
+	}
+
+	// A hung probe stands in for an agent CLI that never returns (e.g. a
+	// sleeping fake binary in PATH). It blocks until the test releases it.
+	releaseProbe := make(chan struct{})
+	probeReturned := make(chan struct{})
+	logWorkerAgentAvailability = func(workerID string) {
+		<-releaseProbe
+		close(probeReturned)
+	}
+
+	// runExternalWorkerLoop registers the worker in production. Reaching it is
+	// the observable proof that a hung probe no longer sits on the critical
+	// path to registration.
+	loopReached := make(chan struct{})
+	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
+		close(loopReached)
+		return nil
+	}
+
+	cmd := newWorkerRunCmd()
+	cmd.SetArgs([]string{"--worker-id", "worker-1", "--once"})
+	execDone := make(chan error, 1)
+	go func() { execDone <- cmd.Execute() }()
+
+	select {
+	case <-loopReached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker run did not reach the registration loop while the availability probe was hung")
+	}
+
+	// The command must not return until the diagnostic probe is joined, so the
+	// availability line is still guaranteed to be emitted.
+	select {
+	case <-execDone:
+		t.Fatal("worker run returned before the availability probe was joined")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseProbe)
+	select {
+	case <-probeReturned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("availability probe was not joined after release")
+	}
+	select {
+	case err := <-execDone:
+		if err != nil {
+			t.Fatalf("worker run execute failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker run did not return after the availability probe completed")
+	}
+}
+
 type mockWorkerClient struct{}
 
 func (m *mockWorkerClient) RegisterWorker(workerID, workerType, host, mode string) (*daemon.RegisterWorkerResponse, error) {

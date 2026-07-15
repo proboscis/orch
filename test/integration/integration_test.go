@@ -208,8 +208,27 @@ func stopTestDaemon() {
 	}
 }
 
+// integrationWorkerReadyTimeout bounds how long the tests wait for the
+// in-process integration worker to register. Worker registration normally
+// completes in well under a second, but the fixed 5s budget this previously
+// used broke under host load and produced flaky local runs (issue
+// integration-worker-register-5s-deadline-flake). The wait polls up to a
+// generous default and is overridable via ORCH_TEST_WORKER_READY_TIMEOUT so a
+// loaded machine can extend it without editing code. The production managed
+// worker-start budget (managedWorkerStartupTimeout) is intentionally left at
+// its 5s default and is unaffected by this test-only knob.
+func integrationWorkerReadyTimeout() time.Duration {
+	const defaultTimeout = 30 * time.Second
+	if raw := strings.TrimSpace(os.Getenv("ORCH_TEST_WORKER_READY_TIMEOUT")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultTimeout
+}
+
 func ensureWorkerOrPanic() {
-	if err := ensureWorkerActiveWithTimeout(5 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(integrationWorkerReadyTimeout()); err != nil {
 		panic(err)
 	}
 }
@@ -277,7 +296,7 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 func ensureWorkerAvailable(t *testing.T) {
 	t.Helper()
 
-	if err := ensureWorkerActiveWithTimeout(3 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(integrationWorkerReadyTimeout()); err != nil {
 		t.Fatalf("%v", err)
 	}
 }
