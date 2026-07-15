@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -189,9 +188,19 @@ func TestAgentClaudeCreatesMultiplexerSession(t *testing.T) {
 
 // TestAgentOpenCodeNoMultiplexer tests opencode uses native session (no tmux)
 func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
-	if _, err := exec.LookPath("opencode"); err != nil {
-		t.Skip("opencode not available")
+	// This test owns the CLI/state contract, not the installed opencode
+	// runtime. The previous real-binary launch slept for one second and then
+	// killed orch unconditionally. On a loaded host the CLI could still be in
+	// its daemon/config RPCs, before saveControlAgentState, so the test itself
+	// removed the process that was supposed to create the asserted file.
+	// A successful test-local executable lets cmd.Run provide the exact
+	// completion boundary with no sleep, retry, or ambient runtime dependency.
+	fakeBinDir := t.TempDir()
+	fakeOpenCode := filepath.Join(fakeBinDir, "opencode")
+	if err := os.WriteFile(fakeOpenCode, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake opencode: %v", err)
 	}
+	t.Setenv("PATH", fakeBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
@@ -209,9 +218,15 @@ func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
 	}
 	cmd.Env = append(env, "ORCH_PROJECT=")
 
-	cmd.Start()
-	time.Sleep(1 * time.Second)
-	cmd.Process.Kill()
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("opencode control agent failed: %v\nOutput:\n%s", err, output.String())
+	}
+	if !strings.Contains(output.String(), "Creating opencode session:") {
+		t.Fatalf("opencode launch did not reach state creation\nOutput:\n%s", output.String())
+	}
 
 	if hasSession(controlAgentSessionName) {
 		t.Error("opencode backend should NOT create tmux session")
