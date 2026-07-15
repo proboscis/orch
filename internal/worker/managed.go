@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -33,6 +34,11 @@ const (
 	masterStateNotRegistered      = "not_registered"
 	masterStateUnreachable        = "unreachable"
 	defaultManagedWorkerQueryTime = time.Second
+	// reconcileReregisterGrace covers the window between a reconciled orphan
+	// gracefully unregistering the shared worker id and the surviving managed
+	// process re-registering after its next heartbeat failure (heartbeat
+	// interval + first reconnect backoff, with margin).
+	reconcileReregisterGrace = 10 * time.Second
 )
 
 var (
@@ -56,6 +62,19 @@ type ManagedStartResult struct {
 	PID      int    `json:"pid"`
 	LogPath  string `json:"log_path,omitempty"`
 	Reused   bool   `json:"reused"`
+	// OrphanPIDs lists processes that claimed this worker id outside the
+	// managed state file and were stopped by the pre-start reconcile.
+	OrphanPIDs []int `json:"orphan_pids,omitempty"`
+}
+
+// ManagedStopResult reports how many worker processes a stop request ended.
+// StoppedCount includes both the managed supervisor process and reconciled
+// orphans; OrphanPIDs lists the processes that claimed a stopped worker id
+// outside the managed state file.
+type ManagedStopResult struct {
+	OK           bool  `json:"ok"`
+	StoppedCount int   `json:"stopped_count"`
+	OrphanPIDs   []int `json:"orphan_pids,omitempty"`
 }
 
 type ManagedState struct {
@@ -132,22 +151,48 @@ func StartManaged(opts ManagedOptions) (*ManagedStartResult, error) {
 	if err := ensureManagedDirs(); err != nil {
 		return nil, err
 	}
+	identityLock, err := acquireManagedWorkerIdentityLock(profile.WorkerID)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseManagedWorkerIdentityLock(identityLock)
 
 	state, _ := loadManagedState(profile.StatePath)
 	if state != nil && state.LogPath != "" {
 		profile.LogPath = state.LogPath
 	}
 
-	reg, regErr := lookupManagedWorkerRegistration(profile.RemoteAddr, profile.WorkerID)
-	if state == nil && regErr == nil && reg != nil && reg.Active {
-		return nil, fmt.Errorf("worker %q is already active on orch-master profile %q but no local managed process metadata exists; it may have been started manually on this host or another host", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr))
+	keepPID := 0
+	if state != nil && state.PID > 0 && daemon.IsProcessRunning(state.PID) {
+		keepPID = state.PID
+	}
+	// Pre-start reconcile: any other local process claiming this worker id —
+	// stale binary generation, different connection string, manual `worker
+	// run` — would contend for the master registration with the process this
+	// start owns. Stop them before deciding reuse vs launch.
+	orphanPIDs, err := reconcileWorkerID(profile.WorkerID, keepPID)
+	if err != nil {
+		return nil, err
 	}
 
-	if state != nil && state.PID > 0 && daemon.IsProcessRunning(state.PID) {
-		if err := waitForManagedWorkerReady(profile, state.PID, nil); err != nil {
+	reg, regErr := lookupManagedWorkerRegistration(profile.RemoteAddr, profile.WorkerID)
+	if state == nil && len(orphanPIDs) == 0 && regErr == nil && reg != nil && reg.Active {
+		return nil, fmt.Errorf("worker %q is already active on orch-master profile %q but no local managed process metadata exists and no local process claims that worker id; it may have been started on another host", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr))
+	}
+
+	if keepPID > 0 {
+		readyTimeout := managedWorkerStartupTimeout
+		if len(orphanPIDs) > 0 {
+			// A gracefully stopped orphan unregisters the shared worker id on
+			// its way out; the surviving managed process re-registers only
+			// after its next heartbeat fails. Wait out that gap instead of
+			// reporting a healthy worker as not registered.
+			readyTimeout += reconcileReregisterGrace
+		}
+		if err := waitForManagedWorkerReady(profile, keepPID, nil, readyTimeout); err != nil {
 			return nil, err
 		}
-		return &ManagedStartResult{OK: true, WorkerID: profile.WorkerID, PID: state.PID, LogPath: profile.LogPath, Reused: true}, nil
+		return &ManagedStartResult{OK: true, WorkerID: profile.WorkerID, PID: keepPID, LogPath: profile.LogPath, Reused: true, OrphanPIDs: orphanPIDs}, nil
 	}
 
 	if state != nil && state.PID > 0 {
@@ -206,7 +251,7 @@ func StartManaged(opts ManagedOptions) (*ManagedStartResult, error) {
 		return nil, err
 	}
 
-	if err := waitForManagedWorkerReady(profile, cmd.Process.Pid, waitCh); err != nil {
+	if err := waitForManagedWorkerReady(profile, cmd.Process.Pid, waitCh, managedWorkerStartupTimeout); err != nil {
 		_ = stopManagedProcess(cmd.Process.Pid)
 		updateManagedState(profile.StatePath, func(state *ManagedState) {
 			state.ProcessState = localProcessStateExited
@@ -217,30 +262,59 @@ func StartManaged(opts ManagedOptions) (*ManagedStartResult, error) {
 		return nil, err
 	}
 
-	return &ManagedStartResult{OK: true, WorkerID: profile.WorkerID, PID: cmd.Process.Pid, LogPath: profile.LogPath}, nil
+	return &ManagedStartResult{OK: true, WorkerID: profile.WorkerID, PID: cmd.Process.Pid, LogPath: profile.LogPath, OrphanPIDs: orphanPIDs}, nil
 }
 
-func StopManaged(opts ManagedOptions, all bool) (int, error) {
+func StopManaged(opts ManagedOptions, all bool) (*ManagedStopResult, error) {
 	if all {
 		profiles, err := listManagedProfiles()
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		stopped := 0
+		result := &ManagedStopResult{OK: true}
 		for _, profile := range profiles {
-			count, err := stopManagedProfile(profile)
+			count, orphans, err := stopManagedProfileLocked(profile)
 			if err != nil {
-				return stopped, err
+				return nil, err
 			}
-			stopped += count
+			result.StoppedCount += count
+			result.OrphanPIDs = append(result.OrphanPIDs, orphans...)
 		}
-		return stopped, nil
+		// Residual sweep: after --all, this host runs zero orch worker
+		// processes, including ones whose worker id no state file records.
+		orphans, err := reconcileAllWorkerProcesses()
+		if err != nil {
+			return nil, err
+		}
+		result.StoppedCount += len(orphans)
+		result.OrphanPIDs = append(result.OrphanPIDs, orphans...)
+		sort.Ints(result.OrphanPIDs)
+		return result, nil
 	}
 
 	profile, err := resolveManagedProfile(opts)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
+	count, orphans, err := stopManagedProfileLocked(profile)
+	if err != nil {
+		return nil, err
+	}
+	return &ManagedStopResult{OK: true, StoppedCount: count, OrphanPIDs: orphans}, nil
+}
+
+// stopManagedProfileLocked wraps stopManagedProfile in the per-worker-id
+// identity lock so stop calls (including each profile handled by
+// `stop --all`) serialize against a concurrent start/stop of the same id.
+func stopManagedProfileLocked(profile managedProfile) (int, []int, error) {
+	if err := ensureManagedDirs(); err != nil {
+		return 0, nil, err
+	}
+	identityLock, err := acquireManagedWorkerIdentityLock(profile.WorkerID)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer releaseManagedWorkerIdentityLock(identityLock)
 	return stopManagedProfile(profile)
 }
 
@@ -434,6 +508,33 @@ func hasAnyPrefix(value string, prefixes []string) bool {
 	return false
 }
 
+// acquireManagedWorkerIdentityLock serializes managed lifecycle transitions
+// (start/stop) for one worker id across processes. The lock file is keyed by
+// the worker id alone — profile-independent, like the identity it guards
+// (ADR-0002 §4) — so concurrent start/stop calls for the same id with
+// different --remote spellings still serialize their reconcile-and-launch
+// sequences instead of interleaving.
+func acquireManagedWorkerIdentityLock(workerID string) (*os.File, error) {
+	lockPath := filepath.Join(xdg.WorkersRuntimeDir(), managedProfileKey(workerID, "")+".lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open managed worker identity lock for %q: %w", workerID, err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lockFile.Close()
+		return nil, fmt.Errorf("lock managed worker identity %q: %w", workerID, err)
+	}
+	return lockFile, nil
+}
+
+func releaseManagedWorkerIdentityLock(lockFile *os.File) {
+	if lockFile == nil {
+		return
+	}
+	_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	_ = lockFile.Close()
+}
+
 func ensureManagedDirs() error {
 	if err := xdg.EnsureWorkersStateDir(); err != nil {
 		return fmt.Errorf("ensure worker state dir: %w", err)
@@ -523,8 +624,8 @@ func removeManagedPID(path string) error {
 	return nil
 }
 
-func waitForManagedWorkerReady(profile managedProfile, pid int, waitCh <-chan error) error {
-	deadline := managedWorkerNow().Add(managedWorkerStartupTimeout)
+func waitForManagedWorkerReady(profile managedProfile, pid int, waitCh <-chan error, timeout time.Duration) error {
+	deadline := managedWorkerNow().Add(timeout)
 	var lastLookupErr error
 	for managedWorkerNow().Before(deadline) {
 		reg, err := lookupManagedWorkerRegistration(profile.RemoteAddr, profile.WorkerID)
@@ -546,7 +647,7 @@ func waitForManagedWorkerReady(profile managedProfile, pid int, waitCh <-chan er
 		}
 		time.Sleep(managedWorkerStartupPoll)
 	}
-	return managedWorkerTimeoutError(profile, lastLookupErr)
+	return managedWorkerTimeoutError(profile, lastLookupErr, timeout)
 }
 
 func managedWorkerExitedError(profile managedProfile, waitErr error) error {
@@ -560,11 +661,11 @@ func managedWorkerExitedError(profile managedProfile, waitErr error) error {
 	return fmt.Errorf("managed worker %q exited before registering with orch-master profile %q%s; check %s or run %s manually for diagnostics", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr), exitSuffix, profile.LogPath, managedWorkerRunDiagnosticCommand(profile))
 }
 
-func managedWorkerTimeoutError(profile managedProfile, lastLookupErr error) error {
+func managedWorkerTimeoutError(profile managedProfile, lastLookupErr error, timeout time.Duration) error {
 	if lastLookupErr != nil {
-		return fmt.Errorf("managed worker %q did not register with orch-master profile %q within %s; last master error: %v; check %s or run %s manually for diagnostics", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr), managedWorkerStartupTimeout, lastLookupErr, profile.LogPath, managedWorkerRunDiagnosticCommand(profile))
+		return fmt.Errorf("managed worker %q did not register with orch-master profile %q within %s; last master error: %v; check %s or run %s manually for diagnostics", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr), timeout, lastLookupErr, profile.LogPath, managedWorkerRunDiagnosticCommand(profile))
 	}
-	return fmt.Errorf("managed worker %q did not register with orch-master profile %q within %s; check %s or run %s manually for diagnostics", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr), managedWorkerStartupTimeout, profile.LogPath, managedWorkerRunDiagnosticCommand(profile))
+	return fmt.Errorf("managed worker %q did not register with orch-master profile %q within %s; check %s or run %s manually for diagnostics", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr), timeout, profile.LogPath, managedWorkerRunDiagnosticCommand(profile))
 }
 
 func managedWorkerRunDiagnosticCommand(profile managedProfile) string {
@@ -622,36 +723,53 @@ func listManagedProfiles() ([]managedProfile, error) {
 	return profiles, nil
 }
 
-func stopManagedProfile(profile managedProfile) (int, error) {
+// stopManagedProfile stops the supervised process recorded in the profile's
+// state file, then reconciles the worker-id invariant: no process on this
+// host may keep claiming the stopped worker id, whether or not any state file
+// tracks it. It returns the total number of processes stopped and the subset
+// that were unmanaged orphans.
+func stopManagedProfile(profile managedProfile) (int, []int, error) {
 	state, err := loadManagedState(profile.StatePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			orphans, rerr := reconcileWorkerID(profile.WorkerID, 0)
+			if rerr != nil {
+				return 0, nil, rerr
+			}
+			if len(orphans) > 0 {
+				return len(orphans), orphans, nil
+			}
 			status, statusErr := StatusManaged(ManagedOptions{WorkerID: profile.WorkerID, RemoteAddr: profile.RemoteAddr})
 			if statusErr == nil && status != nil && status.Master.Registration != nil {
-				return 0, fmt.Errorf("worker %q is registered on orch-master profile %q but is not managed by the local background supervisor", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr))
+				return 0, nil, fmt.Errorf("worker %q is registered on orch-master profile %q but no local process claims it and it is not managed by the local background supervisor", profile.WorkerID, managedProfileDisplay(profile.RemoteAddr))
 			}
-			return 0, nil
+			return 0, nil, nil
 		}
-		return 0, err
+		return 0, nil, err
 	}
-	if state.PID <= 0 || !daemon.IsProcessRunning(state.PID) {
+	stopped := 0
+	if state.PID > 0 && daemon.IsProcessRunning(state.PID) {
+		if err := stopManagedProcess(state.PID); err != nil {
+			return 0, nil, err
+		}
+		stopped = 1
+		updateManagedState(profile.StatePath, func(current *ManagedState) {
+			current.ProcessState = localProcessStateStopped
+			current.ExitedAt = managedWorkerNow()
+			current.LastError = ""
+		})
+	} else {
 		updateManagedState(profile.StatePath, func(current *ManagedState) {
 			current.ProcessState = localProcessStateStopped
 			current.ExitedAt = managedWorkerNow()
 		})
-		_ = removeManagedPID(profile.PIDPath)
-		return 0, nil
 	}
-	if err := stopManagedProcess(state.PID); err != nil {
-		return 0, err
-	}
-	updateManagedState(profile.StatePath, func(current *ManagedState) {
-		current.ProcessState = localProcessStateStopped
-		current.ExitedAt = managedWorkerNow()
-		current.LastError = ""
-	})
 	_ = removeManagedPID(profile.PIDPath)
-	return 1, nil
+	orphans, rerr := reconcileWorkerID(profile.WorkerID, 0)
+	if rerr != nil {
+		return stopped, nil, rerr
+	}
+	return stopped + len(orphans), orphans, nil
 }
 
 func stopManagedProcess(pid int) error {
@@ -662,7 +780,11 @@ func stopManagedProcess(pid int) error {
 	if err != nil {
 		return err
 	}
-	_ = process.Signal(os.Interrupt)
+	// SIGTERM, not SIGINT: a worker spawned as a shell background job
+	// inherits SIGINT as ignored (and Go keeps an inherited SIG_IGN for
+	// SIGINT), so orphans started via `nohup ... &` would only die at the
+	// SIGKILL fallback. The worker loop handles SIGTERM and SIGINT alike.
+	_ = process.Signal(syscall.SIGTERM)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if !daemon.IsProcessRunning(pid) {

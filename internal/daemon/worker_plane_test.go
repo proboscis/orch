@@ -478,3 +478,36 @@ func TestWaitForWorkerLeaseCompletionFailsFastWhenWorkerLost(t *testing.T) {
 		t.Fatalf("fail-fast took %s, want well under the lease timeout", elapsed)
 	}
 }
+
+func TestRegisterWorkerWarnsOnReregisterWhilePreviousStillActive(t *testing.T) {
+	var buf strings.Builder
+	server := NewSocketServer(nil, log.New(&buf, "", 0))
+
+	if _, ttl := server.registerWorker("host-dup", "executor", "zeus", "external", nil); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for first registration")
+	}
+	if strings.Contains(buf.String(), "WARNING") {
+		t.Fatalf("first registration must not warn, got: %s", buf.String())
+	}
+
+	if _, ttl := server.registerWorker("host-dup", "executor", "zeus", "external", nil); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for duplicate registration")
+	}
+	warning := buf.String()
+	if !strings.Contains(warning, "WARNING") || !strings.Contains(warning, "host-dup") || !strings.Contains(warning, "duplicate") {
+		t.Fatalf("expected duplicate-registration warning naming the worker id, got: %s", warning)
+	}
+
+	// A re-register after the previous heartbeat expired is a normal
+	// reconnect and must stay silent.
+	buf.Reset()
+	server.workersMu.Lock()
+	server.workers["host-dup"].LastHeartbeat = time.Now().Add(-2 * workerHeartbeatTTL)
+	server.workersMu.Unlock()
+	if _, ttl := server.registerWorker("host-dup", "executor", "zeus", "external", nil); ttl <= 0 {
+		t.Fatal("expected positive heartbeat ttl for reconnect registration")
+	}
+	if strings.Contains(buf.String(), "WARNING") {
+		t.Fatalf("reconnect after heartbeat expiry must not warn, got: %s", buf.String())
+	}
+}
