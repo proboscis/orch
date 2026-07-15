@@ -285,6 +285,10 @@ type AttachInfo struct {
 	Branch            string
 	TargetHost        string
 	SessionExists     bool
+	// SessionGoneGuidance is set (with SessionExists=false) when the session
+	// is gone but the daemon never reaped it: the daemon explains why
+	// auto-revive does not apply and names the sanctioned escape path.
+	SessionGoneGuidance string
 }
 
 type CaptureResult struct {

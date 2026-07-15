@@ -199,6 +199,15 @@ func formatSendFailureMessage(err error, run *orchapi.Run) string {
 		return ""
 	}
 
+	// When the daemon already classified the failure and named restart-from
+	// as the sanctioned escape (e.g. a session that died without being
+	// reaped, where auto-revive does not apply), relay it untouched: the
+	// generic escalation below ends with "Do NOT use orch restart-from",
+	// which would contradict the daemon's authoritative guidance.
+	if strings.Contains(err.Error(), "orch restart-from") {
+		return err.Error()
+	}
+
 	runRef := "<RUN_REF>"
 	promptPath := "ORCH_PROMPT.md"
 	if run != nil {

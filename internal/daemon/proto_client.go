@@ -882,17 +882,18 @@ func (c *ProtoClient) GetAttachInfo(issueID, runID, shortID string) (*GetAttachI
 	}
 
 	return &GetAttachInfoResponse{
-		OK:                resp.Ok,
-		Error:             resp.Error,
-		IssueID:           attachResp.IssueId,
-		RunID:             attachResp.RunId,
-		Agent:             attachResp.Agent,
-		SessionName:       attachResp.SessionName,
-		Multiplexer:       protoMultiplexerToString(attachResp.Multiplexer),
-		WorktreePath:      attachResp.WorktreePath,
-		ServerPort:        int(attachResp.ServerPort),
-		OpenCodeSessionID: attachResp.OpencodeSessionId,
-		TargetHost:        attachResp.TargetHost,
+		OK:                  resp.Ok,
+		Error:               resp.Error,
+		IssueID:             attachResp.IssueId,
+		RunID:               attachResp.RunId,
+		Agent:               attachResp.Agent,
+		SessionName:         attachResp.SessionName,
+		Multiplexer:         protoMultiplexerToString(attachResp.Multiplexer),
+		WorktreePath:        attachResp.WorktreePath,
+		ServerPort:          int(attachResp.ServerPort),
+		OpenCodeSessionID:   attachResp.OpencodeSessionId,
+		TargetHost:          attachResp.TargetHost,
+		SessionGoneGuidance: attachResp.SessionGoneGuidance,
 	}, nil
 }
 

@@ -570,7 +570,7 @@ class GetAttachInfoRequest(_message.Message):
     def __init__(self, issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., short_id: _Optional[str] = ..., context: _Optional[_Union[RequestContext, _Mapping]] = ...) -> None: ...
 
 class GetAttachInfoResponse(_message.Message):
-    __slots__ = ("command", "multiplexer", "session_name", "worktree_path", "agent", "server_port", "opencode_session_id", "issue_id", "run_id", "target_host")
+    __slots__ = ("command", "multiplexer", "session_name", "worktree_path", "agent", "server_port", "opencode_session_id", "issue_id", "run_id", "target_host", "session_gone_guidance")
     COMMAND_FIELD_NUMBER: _ClassVar[int]
     MULTIPLEXER_FIELD_NUMBER: _ClassVar[int]
     SESSION_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -581,6 +581,7 @@ class GetAttachInfoResponse(_message.Message):
     ISSUE_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     TARGET_HOST_FIELD_NUMBER: _ClassVar[int]
+    SESSION_GONE_GUIDANCE_FIELD_NUMBER: _ClassVar[int]
     command: _containers.RepeatedScalarFieldContainer[str]
     multiplexer: Multiplexer
     session_name: str
@@ -591,7 +592,8 @@ class GetAttachInfoResponse(_message.Message):
     issue_id: str
     run_id: str
     target_host: str
-    def __init__(self, command: _Optional[_Iterable[str]] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., session_name: _Optional[str] = ..., worktree_path: _Optional[str] = ..., agent: _Optional[str] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., target_host: _Optional[str] = ...) -> None: ...
+    session_gone_guidance: str
+    def __init__(self, command: _Optional[_Iterable[str]] = ..., multiplexer: _Optional[_Union[Multiplexer, str]] = ..., session_name: _Optional[str] = ..., worktree_path: _Optional[str] = ..., agent: _Optional[str] = ..., server_port: _Optional[int] = ..., opencode_session_id: _Optional[str] = ..., issue_id: _Optional[str] = ..., run_id: _Optional[str] = ..., target_host: _Optional[str] = ..., session_gone_guidance: _Optional[str] = ...) -> None: ...
 
 class CaptureSessionRequest(_message.Message):
     __slots__ = ("issue_id", "run_id", "context", "lines")

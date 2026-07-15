@@ -860,6 +860,10 @@ type GetAttachInfoResponse struct {
 	OpenCodeSessionID string `json:"opencode_session_id,omitempty"`
 	Branch            string `json:"branch,omitempty"`
 	TargetHost        string `json:"target_host,omitempty"`
+	// SessionGoneGuidance accompanies error "session_not_found" when the
+	// session is gone but the daemon never reaped it (L-S3 latch unset):
+	// explains why auto-revive does not apply and names the escape path.
+	SessionGoneGuidance string `json:"session_gone_guidance,omitempty"`
 }
 
 type GetControlAgentLaunchResponse struct {

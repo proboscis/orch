@@ -2902,8 +2902,12 @@ type GetAttachInfoResponse struct {
 	IssueId           string                 `protobuf:"bytes,8,opt,name=issue_id,json=issueId,proto3" json:"issue_id,omitempty"`
 	RunId             string                 `protobuf:"bytes,9,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	TargetHost        string                 `protobuf:"bytes,10,opt,name=target_host,json=targetHost,proto3" json:"target_host,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Set alongside error="session_not_found" when the session is gone but the
+	// daemon never reaped it (ADR-0005: the L-S3 latch is unset, so auto-revive
+	// does not apply): explains why and names the sanctioned escape path.
+	SessionGoneGuidance string `protobuf:"bytes,11,opt,name=session_gone_guidance,json=sessionGoneGuidance,proto3" json:"session_gone_guidance,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *GetAttachInfoResponse) Reset() {
@@ -3002,6 +3006,13 @@ func (x *GetAttachInfoResponse) GetRunId() string {
 func (x *GetAttachInfoResponse) GetTargetHost() string {
 	if x != nil {
 		return x.TargetHost
+	}
+	return ""
+}
+
+func (x *GetAttachInfoResponse) GetSessionGoneGuidance() string {
+	if x != nil {
+		return x.SessionGoneGuidance
 	}
 	return ""
 }
@@ -11101,7 +11112,7 @@ const file_orch_proto_rawDesc = "" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x19\n" +
 	"\bshort_id\x18\x04 \x01(\tR\ashortId\x121\n" +
-	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\xeb\x02\n" +
+	"\acontext\x18\x05 \x01(\v2\x17.orch.v1.RequestContextR\acontext\"\x9f\x03\n" +
 	"\x15GetAttachInfoResponse\x12\x18\n" +
 	"\acommand\x18\x01 \x03(\tR\acommand\x126\n" +
 	"\vmultiplexer\x18\x02 \x01(\x0e2\x14.orch.v1.MultiplexerR\vmultiplexer\x12!\n" +
@@ -11115,7 +11126,8 @@ const file_orch_proto_rawDesc = "" +
 	"\x06run_id\x18\t \x01(\tR\x05runId\x12\x1f\n" +
 	"\vtarget_host\x18\n" +
 	" \x01(\tR\n" +
-	"targetHost\"\x92\x01\n" +
+	"targetHost\x122\n" +
+	"\x15session_gone_guidance\x18\v \x01(\tR\x13sessionGoneGuidance\"\x92\x01\n" +
 	"\x15CaptureSessionRequest\x12\x19\n" +
 	"\bissue_id\x18\x02 \x01(\tR\aissueId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\x121\n" +

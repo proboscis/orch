@@ -106,6 +106,83 @@ func TestRunAttachWithDeps_RunNotFoundExits(t *testing.T) {
 	}
 }
 
+// A dead-but-unreaped session: the daemon ships its classification in
+// SessionGoneGuidance, and attach must relay it next to the session-not-found
+// message so the user learns why auto-revive did not trigger and how to
+// escape (`orch restart-from`).
+func TestRunAttachWithDeps_DeadUnlatchedSessionRelaysGuidance(t *testing.T) {
+	guidance := "the session is gone but was not reaped by the daemon: agent_session abc (generation 1) is recorded, " +
+		"but no session_reaped note exists for that generation, so the L-S3 latch is unset and " +
+		"auto-revive (ADR-0005 R5: daemon-reaped sessions only) does not apply; " +
+		"use `orch restart-from orch-1#20260101-010101` (or `orch restart-from orch-1#20260101-010101 --branch`) to continue the work"
+	api := &mockAttachAPI{
+		info: &orchapi.AttachInfo{
+			IssueID:             "orch-1",
+			RunID:               "20260101-010101",
+			SessionName:         "run-orch-1-20260101-010101",
+			WorktreePath:        "/tmp/worktree",
+			SessionExists:       false,
+			SessionGoneGuidance: guidance,
+		},
+	}
+	deps, stderr, exitCodes := newAttachDepsForTest(api)
+
+	err := runAttachWithDeps("orch-1#20260101-010101", &attachOptions{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "session not found") {
+		t.Fatalf("runAttachWithDeps() error = %v, want session-not-found", err)
+	}
+	if got := *exitCodes; len(got) != 1 || got[0] != ExitRunNotFound {
+		t.Fatalf("exit codes = %v, want [%d]", got, ExitRunNotFound)
+	}
+
+	got := stderr.String()
+	if !strings.Contains(got, "cannot attach: session not found") {
+		t.Fatalf("stderr = %q, want cannot-attach message", got)
+	}
+	checks := []string{
+		"not reaped by the daemon",
+		"L-S3 latch is unset",
+		"auto-revive",
+		"does not apply",
+		"orch restart-from orch-1#20260101-010101",
+	}
+	for _, check := range checks {
+		if !strings.Contains(got, check) {
+			t.Errorf("stderr missing %q:\n%s", check, got)
+		}
+	}
+}
+
+// Without daemon guidance the session-not-found path keeps its existing
+// one-line message.
+func TestRunAttachWithDeps_SessionNotFoundWithoutGuidanceKeepsMessage(t *testing.T) {
+	api := &mockAttachAPI{
+		info: &orchapi.AttachInfo{
+			IssueID:       "orch-1",
+			RunID:         "20260101-010101",
+			SessionName:   "run-orch-1-20260101-010101",
+			WorktreePath:  "/tmp/worktree",
+			SessionExists: false,
+		},
+	}
+	deps, stderr, exitCodes := newAttachDepsForTest(api)
+
+	err := runAttachWithDeps("orch-1#20260101-010101", &attachOptions{}, deps)
+	if err == nil || !strings.Contains(err.Error(), "session not found") {
+		t.Fatalf("runAttachWithDeps() error = %v, want session-not-found", err)
+	}
+	if got := *exitCodes; len(got) != 1 || got[0] != ExitRunNotFound {
+		t.Fatalf("exit codes = %v, want [%d]", got, ExitRunNotFound)
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "cannot attach: session not found (session: run-orch-1-20260101-010101, worktree: /tmp/worktree)") {
+		t.Fatalf("stderr = %q, want existing cannot-attach message", got)
+	}
+	if strings.Contains(got, "restart-from") {
+		t.Fatalf("stderr = %q, must not fabricate guidance the daemon did not send", got)
+	}
+}
+
 func TestRunAttachWithDeps_AttachSessionOutsideMux(t *testing.T) {
 	api := &mockAttachAPI{
 		info: &orchapi.AttachInfo{

@@ -383,13 +383,14 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 	if !resp.OK {
 		if resp.Error == "session_not_found" || resp.Error == "no sessions" {
 			return &AttachInfo{
-				IssueID:       model.IssueID(resp.IssueID),
-				RunID:         model.RunID(resp.RunID),
-				SessionName:   resp.SessionName,
-				Multiplexer:   Multiplexer(resp.Multiplexer),
-				WorktreePath:  resp.WorktreePath,
-				TargetHost:    resp.TargetHost,
-				SessionExists: false,
+				IssueID:             model.IssueID(resp.IssueID),
+				RunID:               model.RunID(resp.RunID),
+				SessionName:         resp.SessionName,
+				Multiplexer:         Multiplexer(resp.Multiplexer),
+				WorktreePath:        resp.WorktreePath,
+				TargetHost:          resp.TargetHost,
+				SessionExists:       false,
+				SessionGoneGuidance: resp.SessionGoneGuidance,
 			}, nil
 		}
 		return nil, errors.New(resp.Error)
