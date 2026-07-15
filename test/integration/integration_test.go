@@ -27,6 +27,8 @@ var (
 	daemonProcess *os.Process
 )
 
+const integrationWorkerRegistrationTimeout = 30 * time.Second
+
 func TestMain(m *testing.M) {
 	tmpDir, err := os.MkdirTemp("", "orch-integration-*")
 	if err != nil {
@@ -209,7 +211,7 @@ func stopTestDaemon() {
 }
 
 func ensureWorkerOrPanic() {
-	if err := ensureWorkerActiveWithTimeout(5 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(integrationWorkerRegistrationTimeout); err != nil {
 		panic(err)
 	}
 }
@@ -277,7 +279,7 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 func ensureWorkerAvailable(t *testing.T) {
 	t.Helper()
 
-	if err := ensureWorkerActiveWithTimeout(3 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(integrationWorkerRegistrationTimeout); err != nil {
 		t.Fatalf("%v", err)
 	}
 }

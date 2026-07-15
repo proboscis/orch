@@ -119,6 +119,59 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	}
 }
 
+func TestWorkerRunRegistrationDoesNotWaitForAvailabilityProbe(t *testing.T) {
+	origRequire := requireDaemonForWorker
+	origRun := runExternalWorkerLoop
+	origLogAvailability := logWorkerAgentAvailability
+	t.Cleanup(func() {
+		requireDaemonForWorker = origRequire
+		runExternalWorkerLoop = origRun
+		logWorkerAgentAvailability = origLogAvailability
+	})
+
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	loopStarted := make(chan struct{})
+	logWorkerAgentAvailability = func(string) {
+		close(probeStarted)
+		<-releaseProbe
+	}
+	requireDaemonForWorker = func() (worker.Client, error) {
+		return &mockWorkerClient{}, nil
+	}
+	runExternalWorkerLoop = func(worker.Client, worker.RunConfig) error {
+		close(loopStarted)
+		return nil
+	}
+
+	cmd := newWorkerRunCmd()
+	cmd.SetArgs([]string{"--worker-id", "worker-1"})
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Execute()
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		close(releaseProbe)
+		t.Fatal("availability probe did not start")
+	}
+
+	select {
+	case <-loopStarted:
+		close(releaseProbe)
+	case <-time.After(time.Second):
+		close(releaseProbe)
+		<-done
+		t.Fatal("worker registration startup waited for the availability probe")
+	}
+
+	if err := <-done; err != nil {
+		t.Fatalf("worker run execute failed: %v", err)
+	}
+}
+
 type mockWorkerClient struct{}
 
 func (m *mockWorkerClient) RegisterWorker(workerID, workerType, host, mode string) (*daemon.RegisterWorkerResponse, error) {

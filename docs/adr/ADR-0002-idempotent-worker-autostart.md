@@ -141,6 +141,10 @@ while the previous registration is still heartbeat-fresh.
   probe command, exit status or lookup failure, and PATH, so the deciding
   worker environment is immediately diagnosable. Explicit `orch worker start`
   from an environment with the intended PATH remains the operator override.
+- Startup availability reporting is diagnostic-only and runs concurrently
+  with master connection and registration. Registration readiness must never
+  wait for an external agent CLI probe; `worker run` still joins the report
+  before exiting so short-lived workers do not silently lose diagnostics.
 - "worker not running" disappears as a user-visible error class on
   single-machine setups; docs and the embedded tutorial shrink accordingly.
 - The reconciler runs strictly inside the lease-failure path: zero cost when
