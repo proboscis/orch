@@ -2423,11 +2423,12 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 		if err != nil {
 			return errorResponse(fmt.Sprintf("invalid multiplexer type %q for run %s#%s: %v", run.Multiplexer, run.IssueID, run.RunID, err))
 		}
-		mux, err := multiplexer.GetMultiplexer(muxType)
+		mux, err := getAttachSessionChecker(muxType)
 		if err != nil {
 			return errorResponse(fmt.Sprintf("multiplexer %q unavailable for run %s#%s: %v", muxType, run.IssueID, run.RunID, err))
 		}
 		if !mux.HasSession(sessionName) {
+			attachInfo.SessionGoneGuidance = deadUnlatchedSessionGuidance(run)
 			return &orchpb.Response{
 				Ok:    false,
 				Error: "session_not_found",
@@ -2607,7 +2608,7 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 			},
 		}
 		if _, err := s.withWorkerLease(runCtx.projectID, "send_message", string(runCtx.run.IssueID), string(runCtx.run.RunID), payload); err != nil {
-			return errorResponse(err.Error())
+			return errorResponse(decorateSessionNotFound(err, runCtx.run).Error())
 		}
 		// --no-enter only types into the input box without submitting; the
 		// agent has not received anything, so the run is not resumed.
@@ -2628,7 +2629,7 @@ func (s *SocketServer) handleProtoSendMessage(req *orchpb.SendMessageRequest) *o
 	}
 
 	if err := s.processSendMessage(runCtx.store, params); err != nil {
-		return errorResponse(err.Error())
+		return errorResponse(decorateSessionNotFound(err, runCtx.run).Error())
 	}
 
 	return &orchpb.Response{

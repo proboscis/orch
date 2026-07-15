@@ -119,6 +119,11 @@ func runAttachWithDeps(refStr string, opts *attachOptions, deps *attachDeps) err
 	if !info.SessionExists && !isLocalControlHost(info.TargetHost) {
 		fmt.Fprintf(deps.streams.stderr, "cannot attach: session not found (session: %s, worktree: %s)\n",
 			info.SessionName, info.WorktreePath)
+		if info.SessionGoneGuidance != "" {
+			// Daemon-authored classification: the session died without being
+			// reaped, so auto-revive does not apply — relay the escape path.
+			fmt.Fprintf(deps.streams.stderr, "%s\n", info.SessionGoneGuidance)
+		}
 		deps.exit(ExitRunNotFound)
 		return fmt.Errorf("cannot attach: session not found")
 	}

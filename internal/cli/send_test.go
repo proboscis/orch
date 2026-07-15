@@ -153,3 +153,28 @@ func TestFormatSendFailureMessageIncludesEscalationPath(t *testing.T) {
 		}
 	}
 }
+
+// A daemon error that already names `orch restart-from` (the dead-but-unreaped
+// session classification) must pass through untouched: the generic escalation
+// ends with "Do NOT use orch restart-from", which would contradict it.
+func TestFormatSendFailureMessageRelaysDaemonRestartFromGuidance(t *testing.T) {
+	run := &orchapi.Run{
+		IssueID:      "orch-451",
+		RunID:        "20260226-123456",
+		WorktreePath: "/tmp/worktree",
+	}
+	daemonErr := errors.New("daemon error: session run-orch-451-20260226-123456 not found (run may not be active) — " +
+		"the session is gone but was not reaped by the daemon: agent_session abc (generation 1) is recorded, " +
+		"but no session_reaped note exists for that generation, so the L-S3 latch is unset and " +
+		"auto-revive (ADR-0005 R5: daemon-reaped sessions only) does not apply; " +
+		"use `orch restart-from orch-451#20260226-123456` (or `orch restart-from orch-451#20260226-123456 --branch`) to continue the work")
+
+	msg := formatSendFailureMessage(daemonErr, run)
+
+	if msg != daemonErr.Error() {
+		t.Fatalf("expected daemon guidance to pass through untouched, got: %s", msg)
+	}
+	if strings.Contains(msg, "Do NOT use orch restart-from") {
+		t.Fatalf("message contradicts the daemon's restart-from guidance: %s", msg)
+	}
+}

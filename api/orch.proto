@@ -367,6 +367,10 @@ message GetAttachInfoResponse {
   string issue_id = 8;
   string run_id = 9;
   string target_host = 10;
+  // Set alongside error="session_not_found" when the session is gone but the
+  // daemon never reaped it (ADR-0005: the L-S3 latch is unset, so auto-revive
+  // does not apply): explains why and names the sanctioned escape path.
+  string session_gone_guidance = 11;
 }
 
 message CaptureSessionRequest {

@@ -93,6 +93,13 @@ var (
 		}
 		return mux
 	}
+	getAttachSessionChecker = func(muxType multiplexer.Type) (attachSessionChecker, error) {
+		mux, err := multiplexer.GetMultiplexer(muxType)
+		if err != nil {
+			return nil, err
+		}
+		return mux, nil
+	}
 	currentDaemonHostname = os.Hostname
 )
 
@@ -107,6 +114,12 @@ type sendMultiplexer interface {
 type captureMultiplexer interface {
 	HasSession(name string) bool
 	CapturePane(session string, lines int) (string, error)
+}
+
+// attachSessionChecker is the slice of a multiplexer the attach-info handler
+// needs to verify a run's session exists before handing out its attach target.
+type attachSessionChecker interface {
+	HasSession(name string) bool
 }
 
 func readAll(conn net.Conn) ([]byte, error) {
