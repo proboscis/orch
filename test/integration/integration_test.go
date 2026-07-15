@@ -60,6 +60,33 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_CONFIG_HOME", configDir)
 	os.Unsetenv("ORCH_REMOTE")
 	os.Unsetenv("ORCH_PROJECT")
+	// The suite may itself run inside an orch-managed agent session (a run
+	// dispatched by a production worker on this host). That worker's
+	// supervisor exports ORCH_MANAGED_WORKER_* as ABSOLUTE paths to the
+	// production worker's state/pid files, and worker.RunExternalLoop adopts
+	// them from the environment (managedRuntimeStateFromEnv) — so this
+	// suite's in-process worker would overwrite the production worker's
+	// supervisor state (recorded pid/worker_id/lifecycle), and a later
+	// default-id autostart reading that corrupted state would reconcile-kill
+	// the production worker. HOME/XDG isolation cannot contain absolute-path
+	// env vars; scrub them before anything in this process or its children
+	// can read them. Names mirror the managedWorker*Env constants in
+	// internal/worker/managed.go.
+	os.Unsetenv("ORCH_MANAGED_WORKER_STATE_PATH")
+	os.Unsetenv("ORCH_MANAGED_WORKER_PID_PATH")
+	os.Unsetenv("ORCH_MANAGED_WORKER_REMOTE_ADDR")
+	os.Unsetenv("ORCH_MANAGED_WORKER_LOG_PATH")
+	// Disable worker autostart on BOTH sides of the shared contract
+	// (internal/cli and internal/daemon read the same env var, each from its
+	// own process environment; the test daemon inherits ours). Without this,
+	// the suite's private daemon reacts to any transient no-active-worker
+	// moment by exec'ing `worker start --worker-id <hostname default>`
+	// (ensureColocatedWorker, ADR-0002), whose pre-start reconcile stops the
+	// production worker claiming that id on this host. The suite provisions
+	// its own worker explicitly (ensureWorkerActiveWithTimeout and the
+	// lifecycle test's unique --worker-id), so autostart is never needed
+	// here.
+	os.Setenv("ORCH_WORKER_AUTOSTART", "0")
 	// The suite creates and inspects tmux sessions on the default tmux
 	// server. When `go test` itself runs inside a tmux client (e.g. an
 	// agent pane on a private socket), an inherited $TMUX would make every
@@ -169,7 +196,7 @@ func startTestDaemon() {
 	if remoteAddr != "" {
 		args = append(args, "--listen", "tcp://"+remoteAddr)
 	}
-	cmd := exec.Command(orchBinary, args...)
+	cmd := newOrchCommand(args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		panic("failed to start daemon: " + err.Error())
@@ -237,7 +264,7 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	ensureRepoMapping(t, testRepo, testVault)
 	ensureWorkerAvailable(t)
-	cmd := exec.Command(orchBinary, args...)
+	cmd := newOrchCommand(args...)
 	cmd.Dir = testRepo
 
 	env := make([]string, 0, len(os.Environ())+2)
@@ -265,7 +292,7 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 	t.Helper()
 	ensureRepoMapping(t, repoRoot, issuesRoot)
 	ensureWorkerAvailable(t)
-	cmd := exec.Command(orchBinary, args...)
+	cmd := newOrchCommand(args...)
 	cmd.Dir = repoRoot
 
 	env := make([]string, 0, len(os.Environ())+3)
@@ -297,6 +324,20 @@ func ensureWorkerAvailable(t *testing.T) {
 	}
 }
 
+// suiteWorkerID returns the hostname-default worker id for the in-process
+// suite worker. Run-dispatch effects resolve their target to this host's
+// default worker id, so the suite's worker must register under that id to
+// receive leases from the PRIVATE test daemon — with worker autostart
+// disabled (TestMain), no other worker can satisfy dispatch. The claim lives
+// only inside the private daemon's registry: the test process never appears
+// in the host process table as an `orch worker run` claimant, so production
+// reconciles (ADR-0002 §4) cannot see or stop it, and the production
+// worker's registration on the real master is untouched.
+func suiteWorkerID() string {
+	host, _ := os.Hostname()
+	return daemon.HostWorkerID(host)
+}
+
 func ensureWorkerActiveWithTimeout(timeout time.Duration) error {
 	admin := daemon.NewProtoClient("")
 	defer admin.Close()
@@ -308,7 +349,7 @@ func ensureWorkerActiveWithTimeout(timeout time.Duration) error {
 	workerClient := daemon.NewProtoClient("")
 	go func() {
 		_ = worker.RunExternalLoop(workerClient, worker.RunConfig{
-			WorkerID:          "integration-worker",
+			WorkerID:          suiteWorkerID(),
 			PollInterval:      100 * time.Millisecond,
 			HeartbeatInterval: 500 * time.Millisecond,
 		})
@@ -344,7 +385,7 @@ func runOrchRemoteOutsideRepo(t *testing.T, workingDir, project string, args ...
 
 	fullArgs := []string{"--remote", remoteAddr, "--project", project}
 	fullArgs = append(fullArgs, args...)
-	cmd := exec.Command(orchBinary, fullArgs...)
+	cmd := newOrchCommand(fullArgs...)
 	cmd.Dir = workingDir
 
 	home := filepath.Join(workingDir, ".home")
@@ -374,7 +415,7 @@ func runOrchRemoteOutsideRepo(t *testing.T, workingDir, project string, args ...
 func runOrchOutsideRepo(t *testing.T, workingDir string, args ...string) (string, string, error) {
 	t.Helper()
 
-	cmd := exec.Command(orchBinary, args...)
+	cmd := newOrchCommand(args...)
 	cmd.Dir = workingDir
 
 	home := filepath.Join(workingDir, ".home")
@@ -642,13 +683,18 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	waitForRemoteDaemon(t)
 	tmp := t.TempDir()
 
-	cleanupManaged := func() {
-		_, _, _ = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--all", "--json")
-	}
-	cleanupManaged()
+	// Unique per-process worker id: the pre-start/stop reconcile matches
+	// claimants by worker id across the whole host process table (ADR-0002
+	// §4), so the hostname-default id would stop the production worker of the
+	// machine running this suite. A fresh id also makes a pre-test cleanup
+	// unnecessary — state dirs are per-process temp dirs (TestMain) and no
+	// prior process can claim this id.
+	testWorkerID := fmt.Sprintf("test-lifecycle-%d", os.Getpid())
 
 	t.Cleanup(func() {
-		cleanupManaged()
+		// Scoped stop only: `--all` would reconcile the whole host to zero
+		// workers, production worker included.
+		_, _, _ = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--worker-id", testWorkerID, "--json")
 	})
 
 	type workerStartResult struct {
@@ -684,7 +730,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		StoppedCount int  `json:"stopped_count"`
 	}
 
-	out, errOut, err := runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--json")
+	out, errOut, err := runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--worker-id", testWorkerID, "--json")
 	if err != nil {
 		t.Fatalf("worker start failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 	}
@@ -695,8 +741,8 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	if !start.OK {
 		t.Fatalf("expected ok=true from worker start, got: %s", out)
 	}
-	if start.WorkerID == "" || start.PID == 0 {
-		t.Fatalf("unexpected worker start result: %+v", start)
+	if start.WorkerID != testWorkerID || start.PID == 0 {
+		t.Fatalf("unexpected worker start result (want worker id %s): %+v", testWorkerID, start)
 	}
 	if daemonProcess != nil && start.PID == daemonProcess.Pid {
 		t.Fatalf("worker start returned daemon pid %d; expected a separate local worker process", start.PID)
@@ -723,7 +769,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		t.Fatalf("expected worker pid file for %s under %s", start.WorkerID, xdg.WorkersRuntimeDir())
 	}
 
-	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--json")
+	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--worker-id", testWorkerID, "--json")
 	if err != nil {
 		t.Fatalf("second worker start failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 	}
@@ -741,7 +787,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	var status workerStatusResult
 	deadline := time.Now().Add(workerReadyTimeout())
 	for {
-		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
+		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--worker-id", testWorkerID, "--json")
 		if err != nil {
 			t.Fatalf("worker status failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 		}
@@ -766,7 +812,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		t.Fatalf("expected master registration for %s, got: %+v", start.WorkerID, status.Master)
 	}
 
-	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--json")
+	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--worker-id", testWorkerID, "--json")
 	if err != nil {
 		t.Fatalf("worker stop failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 	}
@@ -780,7 +826,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 
 	deadline = time.Now().Add(workerReadyTimeout())
 	for {
-		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
+		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--worker-id", testWorkerID, "--json")
 		if err != nil {
 			t.Fatalf("worker status after stop failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 		}
@@ -1745,7 +1791,7 @@ sleep 2
 
 func TestDiffCommandHelp(t *testing.T) {
 	// Test that the diff command exists and shows proper help
-	cmd := exec.Command(orchBinary, "diff", "--help")
+	cmd := newOrchCommand("diff", "--help")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("diff --help failed: %v (%s)", err, out)
@@ -1871,7 +1917,7 @@ func TestDiffToolSelection(t *testing.T) {
 
 	// The diff tool selection is tested in unit tests
 	// This integration test verifies the command accepts the env var
-	cmd := exec.Command(orchBinary, "diff", "--help")
+	cmd := newOrchCommand("diff", "--help")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("diff --help failed: %v", err)

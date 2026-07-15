@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,7 +74,7 @@ func newDaemonRestartSandbox(t *testing.T) *daemonRestartSandbox {
 
 func (s *daemonRestartSandbox) run(args ...string) (string, error) {
 	cmdArgs := append([]string{"--remote="}, args...)
-	cmd := exec.Command(orchBinary, cmdArgs...)
+	cmd := newOrchCommand(cmdArgs...)
 	cmd.Env = s.env
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -110,7 +109,7 @@ func (s *daemonRestartSandbox) waitForRunning(timeout time.Duration) error {
 
 func (s *daemonRestartSandbox) startPlainDaemon(t *testing.T) {
 	t.Helper()
-	cmd := exec.Command(orchBinary, "--remote=", "daemon", "run", "--listen=")
+	cmd := newOrchCommand("--remote=", "daemon", "run", "--listen=")
 	cmd.Env = s.env
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start plain daemon: %v", err)
