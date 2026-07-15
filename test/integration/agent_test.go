@@ -74,7 +74,7 @@ func runAgentCommand(t *testing.T, args ...string) error {
 		"agent",
 	}, args...)
 
-	cmd := exec.Command(orchBinary, fullArgs...)
+	cmd := newOrchCommand(fullArgs...)
 	cmd.Dir = testRepo
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
@@ -198,8 +198,7 @@ func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
 
 	writeAgentConfig(t, orchDir, "opencode", "tmux")
 
-	cmd := exec.Command(orchBinary,
-		"agent", "--backend", "opencode")
+	cmd := newOrchCommand("agent", "--backend", "opencode")
 	cmd.Dir = testRepo
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {

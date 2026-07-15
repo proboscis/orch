@@ -1,0 +1,46 @@
+rules:
+  - id: integration-worker-cli-explicit-id
+    patterns:
+      - pattern-either:
+          - pattern: $F(..., "worker", "start", ...)
+          - pattern: $F(..., "worker", "stop", ...)
+          - pattern: $F(..., "worker", "status", ...)
+          - pattern: $F(..., "worker", "run", ...)
+      - pattern-not: $F(..., "--worker-id", ...)
+      - pattern-not: $F(..., "--worker-id=" + $ID, ...)
+    paths:
+      include:
+        - /test/
+        - /.semgrep/integration-worker-cli-id/
+    message: >
+      Test code must not invoke the orch worker lifecycle CLI without an
+      explicit --worker-id. The id defaults to the hostname-derived value and
+      the pre-start/stop reconcile matches claimants against the live host
+      process table (ADR-0002 §4), so the call stops the production worker of
+      whatever machine runs the tests — HOME/XDG isolation and a private
+      --remote daemon do not contain a ps scan. Pass a unique id such as
+      test-lifecycle-<pid> (see TestWorkerLifecycleRemoteUsesLocalSupervisor)
+      and build the command through the harness helpers, which enforce the
+      same rule at runtime (guardWorkerLifecycleArgs).
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: integration-worker-cli-default-id
+
+  - id: integration-worker-stop-all-host-sweep
+    pattern: $F(..., "worker", "stop", ..., "--all", ...)
+    paths:
+      include:
+        - /test/
+        - /.semgrep/integration-worker-cli-id/
+    message: >
+      `worker stop --all` reconciles the whole host to zero workers
+      (reconcileAllWorkerProcesses): it stops every `orch worker run` process
+      regardless of worker id, including the production worker. Test cleanup
+      must stop exactly its own worker via --worker-id <unique test id>.
+    severity: ERROR
+    languages: [go]
+    metadata:
+      category: invariant
+      violation: integration-worker-stop-all-host-sweep
