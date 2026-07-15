@@ -131,9 +131,14 @@ func TestMain(m *testing.M) {
 	// startup-prompt-race regression reads global options before creating
 	// its own session) — an assumption the user's always-running default
 	// server used to satisfy ambiently. Recreate it hermetically for the
-	// private server's lifetime. Ignore the error: hosts without tmux skip
-	// the tmux-dependent tests anyway.
-	_ = tmuxCmd("new-session", "-d", "-s", "orch-suite-anchor", "sleep 86400").Run()
+	// private server's lifetime. Hosts without tmux skip every
+	// tmux-dependent test, so a missing binary is fine; any other failure
+	// would silently re-open the server-lifetime hole the anchor closes.
+	if out, err := tmuxCmd("new-session", "-d", "-s", "orch-suite-anchor", "sleep 86400").CombinedOutput(); err != nil {
+		if _, lookErr := exec.LookPath("tmux"); lookErr == nil {
+			panic("failed to create suite anchor tmux session: " + err.Error() + " (" + strings.TrimSpace(string(out)) + ")")
+		}
+	}
 	installFakeAgentBinaries(tmpDir)
 
 	addr, err := reserveLoopbackTCPAddr()
@@ -1539,11 +1544,12 @@ func TestOpenPrintPath(t *testing.T) {
 	}
 }
 
-// tmuxCmd builds a tmux command that never inherits $TMUX, so test-side tmux
-// invocations always target the same (default) tmux server that orch-launched
-// sessions live on, even when the test process runs inside a tmux session.
-// TestMain also unsets TMUX process-wide; this helper keeps every direct tmux
-// invocation correct by construction.
+// tmuxCmd builds a tmux command that never inherits a caller-session
+// address. It keeps TestMain's private TMUX_TMPDIR, so test-side tmux
+// invocations target the suite's own server — the same one orch-launched
+// sessions land on — even when the test process runs inside a tmux session.
+// TestMain also unsets TMUX process-wide; this helper keeps every direct
+// tmux invocation correct by construction.
 func tmuxCmd(args ...string) *exec.Cmd {
 	cmd := exec.Command("tmux", args...)
 	env := make([]string, 0, len(os.Environ()))
@@ -1555,6 +1561,83 @@ func tmuxCmd(args ...string) *exec.Cmd {
 	}
 	cmd.Env = env
 	return cmd
+}
+
+// TestIntegrationTmuxNamespaceIsHermetic is the suite's self-defense: it
+// fails if the private TMUX_TMPDIR isolation ever regresses (e.g. someone
+// removes the TestMain setup or orch starts scrubbing TMUX_TMPDIR), by
+// asserting that suite-side tmux state is invisible to — and destructive
+// suite-side operations cannot reach — an identically-named session in a
+// foreign namespace.
+func TestIntegrationTmuxNamespaceIsHermetic(t *testing.T) {
+	if !hasTmux() {
+		t.Skip("tmux not available")
+	}
+
+	suiteNamespace := os.Getenv("TMUX_TMPDIR")
+	if suiteNamespace == "" {
+		t.Fatal("integration suite must set a private TMUX_TMPDIR")
+	}
+
+	sessionName := fmt.Sprintf("orch-integration-namespace-%d", os.Getpid())
+	if out, err := tmuxCmd("new-session", "-d", "-s", sessionName).CombinedOutput(); err != nil {
+		t.Fatalf("create suite tmux session: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	t.Cleanup(func() { _ = tmuxCmd("kill-session", "-t", "="+sessionName).Run() })
+
+	foreignNamespace, err := os.MkdirTemp("/tmp", "orch-suite-tmux-foreign-")
+	if err != nil {
+		t.Fatalf("create foreign tmux namespace: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(foreignNamespace) })
+	foreignTmuxCmd := func(args ...string) *exec.Cmd {
+		cmd := exec.Command("tmux", args...)
+		env := make([]string, 0, len(os.Environ())+1)
+		for _, kv := range os.Environ() {
+			if strings.HasPrefix(kv, "TMUX=") ||
+				strings.HasPrefix(kv, "TMUX_PANE=") ||
+				strings.HasPrefix(kv, "TMUX_TMPDIR=") {
+				continue
+			}
+			env = append(env, kv)
+		}
+		cmd.Env = append(env, "TMUX_TMPDIR="+foreignNamespace)
+		return cmd
+	}
+	if out, err := foreignTmuxCmd("new-session", "-d", "-s", sessionName).CombinedOutput(); err != nil {
+		t.Fatalf("create foreign tmux session: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	t.Cleanup(func() { _ = foreignTmuxCmd("kill-server").Run() })
+
+	suiteSocket, err := tmuxCmd("display-message", "-p", "-t", "="+sessionName, "#{socket_path}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("read suite socket: %v (%s)", err, strings.TrimSpace(string(suiteSocket)))
+	}
+	foreignSocket, err := foreignTmuxCmd("display-message", "-p", "-t", "="+sessionName, "#{socket_path}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("read foreign socket: %v (%s)", err, strings.TrimSpace(string(foreignSocket)))
+	}
+
+	suiteSocketPath := strings.TrimSpace(string(suiteSocket))
+	foreignSocketPath := strings.TrimSpace(string(foreignSocket))
+	if suiteSocketPath == foreignSocketPath {
+		t.Fatalf("suite and foreign tmux sessions share socket %s", suiteSocketPath)
+	}
+	canonicalSuiteNamespace, canonicalErr := filepath.EvalSymlinks(suiteNamespace)
+	if canonicalErr != nil {
+		t.Fatalf("resolve suite tmux namespace %s: %v", suiteNamespace, canonicalErr)
+	}
+	rel, relErr := filepath.Rel(canonicalSuiteNamespace, suiteSocketPath)
+	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		t.Fatalf("suite socket %s is outside private namespace %s", suiteSocketPath, canonicalSuiteNamespace)
+	}
+
+	if err := tmuxCmd("kill-session", "-t", "="+sessionName).Run(); err != nil {
+		t.Fatalf("kill suite session: %v", err)
+	}
+	if err := foreignTmuxCmd("has-session", "-t", "="+sessionName).Run(); err != nil {
+		t.Fatal("suite cleanup reached same-named session in foreign tmux namespace")
+	}
 }
 
 // Skip tmux tests if tmux is not available
