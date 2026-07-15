@@ -89,11 +89,12 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 
 	called := false
 	availabilityLogged := false
+	availabilityWorkerID := ""
+	// The availability probe runs on its own goroutine; record and assert
+	// after Execute instead of failing from a non-test goroutine.
 	logWorkerAgentAvailability = func(workerID string) {
 		availabilityLogged = true
-		if workerID != "worker-1" {
-			t.Fatalf("availability worker id = %q, want worker-1", workerID)
-		}
+		availabilityWorkerID = workerID
 	}
 	var got worker.RunConfig
 	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
@@ -114,8 +115,77 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	if !availabilityLogged {
 		t.Fatal("expected worker startup to log agent availability")
 	}
+	if availabilityWorkerID != "worker-1" {
+		t.Fatalf("availability worker id = %q, want worker-1", availabilityWorkerID)
+	}
 	if got.WorkerID != "worker-1" || !got.Once || got.PollInterval != 300*time.Millisecond || got.HeartbeatInterval != 7*time.Second {
 		t.Fatalf("unexpected run config: %+v", got)
+	}
+}
+
+// TestWorkerRunRegistrationNotBlockedByAvailabilityProbe pins the startup
+// accounting law behind `orch worker start`: the availability probe is
+// diagnostic-only, so the registration path (the worker loop) must run while
+// a probe is still in flight. A hanging probe otherwise consumes the managed
+// launcher's entire ready-wait budget (both were 5s) and start always fails.
+// The process still must not exit before the availability map is logged.
+func TestWorkerRunRegistrationNotBlockedByAvailabilityProbe(t *testing.T) {
+	origRequire := requireDaemonForWorker
+	origRun := runExternalWorkerLoop
+	origLogAvailability := logWorkerAgentAvailability
+	t.Cleanup(func() {
+		requireDaemonForWorker = origRequire
+		runExternalWorkerLoop = origRun
+		logWorkerAgentAvailability = origLogAvailability
+	})
+
+	requireDaemonForWorker = func() (worker.Client, error) {
+		return &mockWorkerClient{}, nil
+	}
+
+	probeStarted := make(chan struct{})
+	probeRelease := make(chan struct{})
+	probeUnblockedByLoop := false
+	probeFinished := false
+	logWorkerAgentAvailability = func(string) {
+		close(probeStarted)
+		// Simulate a hanging agent CLI: only the worker loop having already
+		// run releases the probe. If registration still waited on the probe,
+		// this would time out and fail the ordering assertion below.
+		select {
+		case <-probeRelease:
+			probeUnblockedByLoop = true
+		case <-time.After(2 * time.Second):
+		}
+		probeFinished = true
+	}
+
+	loopCalled := false
+	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
+		loopCalled = true
+		select {
+		case <-probeStarted:
+		case <-time.After(2 * time.Second):
+			t.Error("availability probe was never started")
+		}
+		close(probeRelease)
+		return nil
+	}
+
+	cmd := newWorkerRunCmd()
+	cmd.SetArgs([]string{"--worker-id", "worker-probe", "--once"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("worker run execute failed: %v", err)
+	}
+
+	if !loopCalled {
+		t.Fatal("expected runExternalWorkerLoop to be called")
+	}
+	if !probeUnblockedByLoop {
+		t.Fatal("worker loop did not run while the availability probe was still in flight; registration is serialized behind probing again")
+	}
+	if !probeFinished {
+		t.Fatal("worker run returned before the availability map was logged")
 	}
 }
 
