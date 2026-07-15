@@ -70,7 +70,7 @@ test:
 	fi; \
 	trap 'rmdir $(TEST_LOCK_DIR)' EXIT INT TERM; \
 	ulimit -n $(TEST_MAX_FD); \
-	ORCH_SAFE_CLI_TEST=1 GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '$(TEST_RUN)' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
+	GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '$(TEST_RUN)' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
 
 test-fast:
 	@if ! mkdir $(TEST_LOCK_DIR) 2>/dev/null; then \
@@ -78,7 +78,7 @@ test-fast:
 		exit 1; \
 	fi; \
 	trap 'rmdir $(TEST_LOCK_DIR)' EXIT INT TERM; \
-	ORCH_SAFE_CLI_TEST=1 go test -p 1 -parallel 1 $(TEST_PKGS)
+	go test -p 1 -parallel 1 $(TEST_PKGS)
 
 test-compile:
 	@if ! mkdir $(TEST_LOCK_DIR) 2>/dev/null; then \
@@ -86,7 +86,7 @@ test-compile:
 		exit 1; \
 	fi; \
 	trap 'rmdir $(TEST_LOCK_DIR)' EXIT INT TERM; \
-	ORCH_SAFE_CLI_TEST=1 GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '^$$' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
+	GOGC=$(TEST_GOGC) GOMEMLIMIT=$(TEST_GOMEMLIMIT) go test -run '^$$' -p 1 -parallel 1 -timeout $(TEST_TIMEOUT) $(TEST_PKGS)
 
 lint: lint-fixtures
 	@test -x "$(SEMGREP)" || uv tool install semgrep

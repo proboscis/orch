@@ -27,7 +27,22 @@ var (
 	daemonProcess *os.Process
 )
 
+var managedWorkerRuntimeEnvKeys = []string{
+	"ORCH_MANAGED_WORKER_STATE_PATH",
+	"ORCH_MANAGED_WORKER_PID_PATH",
+	"ORCH_MANAGED_WORKER_REMOTE_ADDR",
+	"ORCH_MANAGED_WORKER_LOG_PATH",
+}
+
 func TestMain(m *testing.M) {
+	// A test binary launched from an orch-managed run inherits the supervisor's
+	// explicit runtime paths. Scrub them before starting the in-process test
+	// worker so it cannot overwrite the real worker's state/PID files. This was
+	// observed during verification of the 2026-07-15 worker-id collision fix.
+	for _, key := range managedWorkerRuntimeEnvKeys {
+		os.Unsetenv(key)
+	}
+
 	tmpDir, err := os.MkdirTemp("", "orch-integration-*")
 	if err != nil {
 		panic(err)
@@ -235,6 +250,7 @@ func stopTestWorker() {
 
 func runOrch(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	requireSafeIntegrationWorkerCommand(t, args)
 	ensureRepoMapping(t, testRepo, testVault)
 	ensureWorkerAvailable(t)
 	cmd := exec.Command(orchBinary, args...)
@@ -263,6 +279,7 @@ func runOrch(t *testing.T, args ...string) (string, error) {
 
 func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (string, error) {
 	t.Helper()
+	requireSafeIntegrationWorkerCommand(t, args)
 	ensureRepoMapping(t, repoRoot, issuesRoot)
 	ensureWorkerAvailable(t)
 	cmd := exec.Command(orchBinary, args...)
@@ -301,14 +318,23 @@ func ensureWorkerActiveWithTimeout(timeout time.Duration) error {
 	admin := daemon.NewProtoClient("")
 	defer admin.Close()
 
-	if workersActive(admin) {
+	host, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("resolve integration worker hostname: %w", err)
+	}
+	// Untargeted/local effects are leased specifically to host-<hostname>.
+	// Register the in-process test worker under that expected ID so the private
+	// daemon never falls through to managed colocated-worker autostart, whose
+	// host-wide reconcile could stop a real worker with the same ID.
+	workerID := daemon.HostWorkerID(host)
+	if workerActive(admin, workerID) {
 		return nil
 	}
 
 	workerClient := daemon.NewProtoClient("")
 	go func() {
 		_ = worker.RunExternalLoop(workerClient, worker.RunConfig{
-			WorkerID:          "integration-worker",
+			WorkerID:          workerID,
 			PollInterval:      100 * time.Millisecond,
 			HeartbeatInterval: 500 * time.Millisecond,
 		})
@@ -317,7 +343,7 @@ func ensureWorkerActiveWithTimeout(timeout time.Duration) error {
 
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if workersActive(admin) {
+		if workerActive(admin, workerID) {
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -326,13 +352,13 @@ func ensureWorkerActiveWithTimeout(timeout time.Duration) error {
 	return fmt.Errorf("integration worker did not become active in time")
 }
 
-func workersActive(client *daemon.ProtoClient) bool {
+func workerActive(client *daemon.ProtoClient, workerID string) bool {
 	resp, err := client.ListWorkers()
 	if err != nil || resp == nil {
 		return false
 	}
 	for _, w := range resp.Workers {
-		if w.Active {
+		if w.ID == workerID && w.Active {
 			return true
 		}
 	}
@@ -344,6 +370,7 @@ func runOrchRemoteOutsideRepo(t *testing.T, workingDir, project string, args ...
 
 	fullArgs := []string{"--remote", remoteAddr, "--project", project}
 	fullArgs = append(fullArgs, args...)
+	requireSafeIntegrationWorkerCommand(t, fullArgs)
 	cmd := exec.Command(orchBinary, fullArgs...)
 	cmd.Dir = workingDir
 
@@ -373,6 +400,7 @@ func runOrchRemoteOutsideRepo(t *testing.T, workingDir, project string, args ...
 
 func runOrchOutsideRepo(t *testing.T, workingDir string, args ...string) (string, string, error) {
 	t.Helper()
+	requireSafeIntegrationWorkerCommand(t, args)
 
 	cmd := exec.Command(orchBinary, args...)
 	cmd.Dir = workingDir
@@ -403,6 +431,107 @@ func runOrchOutsideRepo(t *testing.T, workingDir string, args ...string) (string
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	return stdout.String(), stderr.String(), err
+}
+
+func requireSafeIntegrationWorkerCommand(t *testing.T, args []string) {
+	t.Helper()
+	if err := validateIntegrationWorkerCommand(args); err != nil {
+		t.Fatalf("unsafe integration-test orch command: %v", err)
+	}
+}
+
+// validateIntegrationWorkerCommand prevents a repeat of the 2026-07-15
+// incident where this integration suite's default-id `worker start` reconciled
+// away a real worker on the same host. HOME/XDG/remote isolation cannot contain
+// worker-id reconciliation because it scans the host process table.
+func validateIntegrationWorkerCommand(args []string) error {
+	workerStartIndex := -1
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "worker" && args[i+1] == "start" {
+			workerStartIndex = i
+			break
+		}
+	}
+	if workerStartIndex < 0 {
+		return nil
+	}
+
+	for i := workerStartIndex + 2; i < len(args); i++ {
+		if args[i] == "--worker-id" {
+			if i+1 < len(args) && strings.TrimSpace(args[i+1]) != "" && !strings.HasPrefix(args[i+1], "-") {
+				return nil
+			}
+			break
+		}
+		if workerID, ok := strings.CutPrefix(args[i], "--worker-id="); ok {
+			if strings.TrimSpace(workerID) != "" {
+				return nil
+			}
+			break
+		}
+	}
+
+	return fmt.Errorf("worker start requires a non-empty explicit --worker-id; the hostname default can stop a real worker on this host")
+}
+
+func runTestWorkerOutsideRepo(t *testing.T, workingDir, workerID, command string, args ...string) (string, string, error) {
+	t.Helper()
+	if strings.TrimSpace(workerID) == "" {
+		t.Fatal("test worker id must not be empty")
+	}
+
+	workerArgs := []string{"--remote", remoteAddr, "worker", command, "--worker-id", workerID}
+	workerArgs = append(workerArgs, args...)
+	return runOrchOutsideRepo(t, workingDir, workerArgs...)
+}
+
+func TestIntegrationHarnessRequiresExplicitWorkerIDForStart(t *testing.T) {
+	for _, args := range [][]string{
+		{"--remote", "127.0.0.1:7777", "worker", "start", "--json"},
+		{"worker", "start", "--worker-id", ""},
+		{"worker", "start", "--worker-id", "--json"},
+		{"worker", "start", "--worker-id="},
+	} {
+		if err := validateIntegrationWorkerCommand(args); err == nil {
+			t.Fatalf("validateIntegrationWorkerCommand(%q) = nil, want unsafe default-id error", args)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"--remote", "127.0.0.1:7777", "worker", "start", "--worker-id", "test-worker-123", "--json"},
+		{"worker", "start", "--worker-id=test-worker-123"},
+		{"worker", "status", "--json"},
+	} {
+		if err := validateIntegrationWorkerCommand(args); err != nil {
+			t.Fatalf("validateIntegrationWorkerCommand(%q) = %v, want nil", args, err)
+		}
+	}
+}
+
+func TestIntegrationHarnessIsolatesRealWorker(t *testing.T) {
+	for _, key := range managedWorkerRuntimeEnvKeys {
+		if value, ok := os.LookupEnv(key); ok {
+			t.Fatalf("integration harness leaked %s=%q from a real managed worker", key, value)
+		}
+	}
+
+	host, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("resolve hostname: %v", err)
+	}
+	wantWorkerID := daemon.HostWorkerID(host)
+	client := daemon.NewProtoClient("")
+	defer client.Close()
+	resp, err := client.ListWorkers()
+	if err != nil {
+		t.Fatalf("list integration workers: %v", err)
+	}
+	for _, registration := range resp.Workers {
+		if registration.ID == wantWorkerID && registration.Active {
+			return
+		}
+	}
+	t.Fatalf("private daemon has no active canonical local worker %q: %+v", wantWorkerID, resp.Workers)
 }
 
 func waitForRemoteDaemon(t *testing.T) {
@@ -641,9 +770,10 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 
 	waitForRemoteDaemon(t)
 	tmp := t.TempDir()
+	workerID := fmt.Sprintf("test-lifecycle-%d-%d", os.Getpid(), time.Now().UnixNano())
 
 	cleanupManaged := func() {
-		_, _, _ = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--all", "--json")
+		_, _, _ = runTestWorkerOutsideRepo(t, tmp, workerID, "stop", "--json")
 	}
 	cleanupManaged()
 
@@ -684,7 +814,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		StoppedCount int  `json:"stopped_count"`
 	}
 
-	out, errOut, err := runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--json")
+	out, errOut, err := runTestWorkerOutsideRepo(t, tmp, workerID, "start", "--json")
 	if err != nil {
 		t.Fatalf("worker start failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 	}
@@ -695,7 +825,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	if !start.OK {
 		t.Fatalf("expected ok=true from worker start, got: %s", out)
 	}
-	if start.WorkerID == "" || start.PID == 0 {
+	if start.WorkerID != workerID || start.PID == 0 {
 		t.Fatalf("unexpected worker start result: %+v", start)
 	}
 	if daemonProcess != nil && start.PID == daemonProcess.Pid {
@@ -723,7 +853,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		t.Fatalf("expected worker pid file for %s under %s", start.WorkerID, xdg.WorkersRuntimeDir())
 	}
 
-	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "start", "--json")
+	out, errOut, err = runTestWorkerOutsideRepo(t, tmp, workerID, "start", "--json")
 	if err != nil {
 		t.Fatalf("second worker start failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 	}
@@ -741,7 +871,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	var status workerStatusResult
 	deadline := time.Now().Add(workerReadyTimeout())
 	for {
-		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
+		out, errOut, err = runTestWorkerOutsideRepo(t, tmp, workerID, "status", "--json")
 		if err != nil {
 			t.Fatalf("worker status failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 		}
@@ -766,7 +896,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		t.Fatalf("expected master registration for %s, got: %+v", start.WorkerID, status.Master)
 	}
 
-	out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "stop", "--json")
+	out, errOut, err = runTestWorkerOutsideRepo(t, tmp, workerID, "stop", "--json")
 	if err != nil {
 		t.Fatalf("worker stop failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 	}
@@ -780,7 +910,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 
 	deadline = time.Now().Add(workerReadyTimeout())
 	for {
-		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
+		out, errOut, err = runTestWorkerOutsideRepo(t, tmp, workerID, "status", "--json")
 		if err != nil {
 			t.Fatalf("worker status after stop failed: %v\nstdout: %s\nstderr: %s", err, out, errOut)
 		}
