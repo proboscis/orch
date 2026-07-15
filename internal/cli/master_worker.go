@@ -59,7 +59,19 @@ func newWorkerRunCmd() *cobra.Command {
 		Short: "Run long-lived orch-worker host loop",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			worker.ScrubInheritedMultiplexerEnv()
-			logWorkerAgentAvailability(workerID)
+			// Availability probing is diagnostic-only: nothing in registration
+			// consumes its result, and a hanging agent CLI holds a probe for
+			// the full per-probe timeout — the same 5s the managed launcher
+			// waits for this process to register. Probe concurrently so master
+			// registration never spends ready-wait budget on probes, but do
+			// not exit before the availability map is logged: a worker log
+			// must never hide the agent capabilities of its environment.
+			availabilityLogged := make(chan struct{})
+			go func() {
+				defer close(availabilityLogged)
+				logWorkerAgentAvailability(workerID)
+			}()
+			defer func() { <-availabilityLogged }()
 
 			client, err := requireDaemonForWorker()
 			if err != nil {

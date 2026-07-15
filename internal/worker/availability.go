@@ -9,8 +9,11 @@ import (
 )
 
 // LogAgentAvailability probes every known adapter once at worker process
-// startup. This runs before master registration so a healthy-looking worker
-// never hides the agent capabilities of its inherited environment.
+// startup so a healthy-looking worker never hides the agent capabilities of
+// its inherited environment. It is diagnostic-only and must never gate master
+// registration: the caller runs it concurrently with registration, because a
+// hanging agent CLI holds a probe for the full per-probe timeout — the same
+// budget the managed launcher grants the worker to register.
 func LogAgentAvailability(workerID string) {
 	host, _ := os.Hostname()
 	if host == "" {

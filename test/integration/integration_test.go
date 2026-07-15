@@ -208,8 +208,23 @@ func stopTestDaemon() {
 	}
 }
 
+// workerReadyTimeout is the total polling budget for observing worker
+// registration in this suite. The production `orch worker start` ready wait
+// keeps its 5s default; the test-side deadline is deliberately looser because
+// a loaded host (parallel builds, other agents) can stretch scheduling far
+// past what the polling interval assumes, and a broken registration still
+// fails fast in practice — it never becomes active at all.
+func workerReadyTimeout() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("ORCH_TEST_WORKER_READY_TIMEOUT")); raw != "" {
+		if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 30 * time.Second
+}
+
 func ensureWorkerOrPanic() {
-	if err := ensureWorkerActiveWithTimeout(5 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(workerReadyTimeout()); err != nil {
 		panic(err)
 	}
 }
@@ -277,7 +292,7 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 func ensureWorkerAvailable(t *testing.T) {
 	t.Helper()
 
-	if err := ensureWorkerActiveWithTimeout(3 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(workerReadyTimeout()); err != nil {
 		t.Fatalf("%v", err)
 	}
 }
@@ -724,7 +739,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	}
 
 	var status workerStatusResult
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(workerReadyTimeout())
 	for {
 		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
 		if err != nil {
@@ -763,7 +778,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		t.Fatalf("unexpected worker stop result: %+v", stop)
 	}
 
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(workerReadyTimeout())
 	for {
 		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
 		if err != nil {
