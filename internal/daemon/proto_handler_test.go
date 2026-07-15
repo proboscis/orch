@@ -299,6 +299,61 @@ func sessionStateTestRun(t *testing.T, issueID, runID string, reaped, withIdenti
 	return run
 }
 
+func TestRunControlMissingDeadUnreapedSessionExplainsRestartEscape(t *testing.T) {
+	binDir := t.TempDir()
+	if err := os.WriteFile(binDir+"/tmux", []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write fake tmux: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	previousSendMux := getSendMultiplexerForType
+	getSendMultiplexerForType = func(multiplexer.Type) sendMultiplexer {
+		return &mockSendMux{hasSession: false, muxType: multiplexer.TypeTmux}
+	}
+	t.Cleanup(func() { getSendMultiplexerForType = previousSendMux })
+
+	run := sessionStateTestRun(t, "issue-dead-unreaped", "20260715-182520", false, true)
+	if run.SessionReaped() || run.AgentSessionID == "" {
+		t.Fatalf("precondition: SessionReaped()=%v agent_session_id=%q, want false and recorded identity", run.SessionReaped(), run.AgentSessionID)
+	}
+	st := &mockStore{runs: map[string]*model.Run{run.Ref().String(): run}}
+	server := newTestServer(t, st)
+	ctx := &orchpb.RequestContext{ProjectId: testProjectID}
+
+	responses := map[string]*orchpb.Response{
+		"send": server.handleProtoSendMessage(&orchpb.SendMessageRequest{
+			IssueId: string(run.IssueID),
+			RunId:   string(run.RunID),
+			Message: "continue",
+			Context: ctx,
+		}),
+		"attach": server.handleProtoGetAttachInfo(&orchpb.GetAttachInfoRequest{
+			IssueId: string(run.IssueID),
+			RunId:   string(run.RunID),
+			Context: ctx,
+		}),
+	}
+
+	for name, resp := range responses {
+		t.Run(name, func(t *testing.T) {
+			if resp.Ok {
+				t.Fatalf("%s unexpectedly succeeded", name)
+			}
+			for _, want := range []string{
+				"session is gone",
+				"not reaped by the daemon",
+				"L-S3 latch is unset",
+				"auto-revive does not apply",
+				"`orch restart-from issue-dead-unreaped#20260715-182520`",
+			} {
+				if !strings.Contains(resp.Error, want) {
+					t.Fatalf("%s error = %q, want substring %q", name, resp.Error, want)
+				}
+			}
+		})
+	}
+}
+
 func TestHandleProtoListRunsDerivesSessionStateFromStoredFacts(t *testing.T) {
 	live := sessionStateTestRun(t, "issue-live", "run-live", false, true)
 	revivable := sessionStateTestRun(t, "issue-revivable", "run-revivable", true, true)

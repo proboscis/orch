@@ -144,7 +144,7 @@ func TestFormatSendFailureMessageIncludesEscalationPath(t *testing.T) {
 		"/tmp/worktree/ORCH_PROMPT.md",
 		"tmux send-keys",
 		"zellij action write-chars",
-		"Do NOT use orch restart-from - the run is likely still alive.",
+		"Do NOT use orch restart-from unless the daemon error above says auto-revive does not apply, or the run is failed, canceled, or unknown.",
 	}
 
 	for _, check := range checks {

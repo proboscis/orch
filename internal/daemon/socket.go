@@ -3010,10 +3010,10 @@ func (s *SocketServer) processSendMessageForRun(st store.Store, run *model.Run, 
 
 	if run.Agent == string(agent.AgentOpenCode) {
 		if err := s.processSendOpenCode(st, run.Ref(), run, params.Message); err != nil {
-			return err
+			return explainDeadUnreapedSession(run, err)
 		}
 	} else if err := s.processSendTmux(run, params.Message, params.NoEnter); err != nil {
-		return err
+		return explainDeadUnreapedSession(run, err)
 	}
 
 	// --no-enter only types into the input box without submitting; the agent

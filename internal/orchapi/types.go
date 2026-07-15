@@ -285,6 +285,8 @@ type AttachInfo struct {
 	Branch            string
 	TargetHost        string
 	SessionExists     bool
+	// SessionError is daemon-authored detail for an absent attach target.
+	SessionError string
 }
 
 type CaptureResult struct {

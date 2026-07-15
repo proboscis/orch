@@ -381,7 +381,9 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 		return nil, mapAmbiguousRefError(err)
 	}
 	if !resp.OK {
-		if resp.Error == "session_not_found" || resp.Error == "no sessions" {
+		if resp.Error == "session_not_found" || strings.HasPrefix(resp.Error, "session_not_found:") || resp.Error == "no sessions" {
+			sessionError := strings.TrimSpace(strings.TrimPrefix(resp.Error, "session_not_found"))
+			sessionError = strings.TrimSpace(strings.TrimPrefix(sessionError, ":"))
 			return &AttachInfo{
 				IssueID:       model.IssueID(resp.IssueID),
 				RunID:         model.RunID(resp.RunID),
@@ -390,6 +392,7 @@ func (c *DaemonClient) GetAttachInfo(ctx context.Context, ref RunRef) (*AttachIn
 				WorktreePath:  resp.WorktreePath,
 				TargetHost:    resp.TargetHost,
 				SessionExists: false,
+				SessionError:  sessionError,
 			}, nil
 		}
 		return nil, errors.New(resp.Error)

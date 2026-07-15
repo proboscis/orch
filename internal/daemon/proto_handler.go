@@ -2428,9 +2428,15 @@ func (s *SocketServer) handleProtoGetAttachInfo(req *orchpb.GetAttachInfoRequest
 			return errorResponse(fmt.Sprintf("multiplexer %q unavailable for run %s#%s: %v", muxType, run.IssueID, run.RunID, err))
 		}
 		if !mux.HasSession(sessionName) {
+			notFound := &agent.SessionNotFoundError{SessionName: sessionName}
+			sessionErr := explainDeadUnreapedSession(run, notFound)
+			responseError := "session_not_found"
+			if sessionErr != notFound {
+				responseError += ": " + sessionErr.Error()
+			}
 			return &orchpb.Response{
 				Ok:    false,
-				Error: "session_not_found",
+				Error: responseError,
 				Response: &orchpb.Response_GetAttachInfo{
 					GetAttachInfo: attachInfo,
 				},

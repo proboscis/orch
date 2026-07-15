@@ -47,7 +47,8 @@ If sending fails, treat it as an infrastructure issue first:
   4. Write feedback into ORCH_PROMPT.md in the run worktree
   5. Use native multiplexer send (tmux send-keys / zellij action write-chars)
 
-Do NOT use orch restart-from unless the run is failed, canceled, or unknown.
+Do NOT use orch restart-from unless the daemon reports that auto-revive does
+not apply, or the run is failed, canceled, or unknown.
 
 Examples:
   # Send a message to an agent
@@ -212,7 +213,7 @@ func formatSendFailureMessage(err error, run *orchapi.Run) string {
 		}
 	}
 
-	return fmt.Sprintf("%s\n\nSend failed. Try this escalation path before assuming the run is broken:\n  1. orch capture %s\n  2. orch ps\n  3. Check the multiplexer directly (tmux list-sessions / zellij list-sessions)\n  4. Write feedback into %s\n  5. Use native multiplexer send (tmux send-keys / zellij action write-chars)\n\nDo NOT use orch restart-from - the run is likely still alive.", err.Error(), runRef, promptPath)
+	return fmt.Sprintf("%s\n\nSend failed. Try this escalation path before assuming the run is broken:\n  1. orch capture %s\n  2. orch ps\n  3. Check the multiplexer directly (tmux list-sessions / zellij list-sessions)\n  4. Write feedback into %s\n  5. Use native multiplexer send (tmux send-keys / zellij action write-chars)\n\nDo NOT use orch restart-from unless the daemon error above says auto-revive does not apply, or the run is failed, canceled, or unknown.", err.Error(), runRef, promptPath)
 }
 
 func validateSendConfig(run *orchapi.Run, isOpenCode bool) error {

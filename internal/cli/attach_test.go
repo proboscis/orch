@@ -106,6 +106,30 @@ func TestRunAttachWithDeps_RunNotFoundExits(t *testing.T) {
 	}
 }
 
+func TestRunAttachWithDeps_MissingSessionDisplaysDaemonGuidance(t *testing.T) {
+	const guidance = "the session was not reaped by the daemon; the L-S3 latch is unset, so auto-revive does not apply; use `orch restart-from orch-1#20260101-010101`"
+	api := &mockAttachAPI{
+		info: &orchapi.AttachInfo{
+			IssueID:       "orch-1",
+			RunID:         "20260101-010101",
+			SessionExists: false,
+			SessionError:  guidance,
+		},
+	}
+	deps, stderr, exitCodes := newAttachDepsForTest(api)
+
+	err := runAttachWithDeps("orch-1#20260101-010101", &attachOptions{}, deps)
+	if err == nil || !strings.Contains(err.Error(), guidance) {
+		t.Fatalf("runAttachWithDeps() error = %v, want daemon guidance", err)
+	}
+	if got := *exitCodes; len(got) != 1 || got[0] != ExitRunNotFound {
+		t.Fatalf("exit codes = %v, want [%d]", got, ExitRunNotFound)
+	}
+	if got := stderr.String(); !strings.Contains(got, guidance) {
+		t.Fatalf("stderr = %q, want daemon guidance", got)
+	}
+}
+
 func TestRunAttachWithDeps_AttachSessionOutsideMux(t *testing.T) {
 	api := &mockAttachAPI{
 		info: &orchapi.AttachInfo{
