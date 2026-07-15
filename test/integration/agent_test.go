@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -189,35 +189,94 @@ func TestAgentClaudeCreatesMultiplexerSession(t *testing.T) {
 
 // TestAgentOpenCodeNoMultiplexer tests opencode uses native session (no tmux)
 func TestAgentOpenCodeNoMultiplexer(t *testing.T) {
-	if _, err := exec.LookPath("opencode"); err != nil {
-		t.Skip("opencode not available")
-	}
-
 	orchDir, cleanup := setupAgentTest(t)
 	defer cleanup()
 
 	writeAgentConfig(t, orchDir, "opencode", "tmux")
 
+	// Hermetic backend: `orch agent --backend opencode` needs an `opencode`
+	// binary only as the interactive process it execs AFTER saving the state
+	// file; nothing this test asserts depends on real opencode behavior.
+	// TestMain deliberately installs no opencode shim (other tests exercise
+	// the real opencode server bootstrap), so give just this subprocess a
+	// fake one on PATH. This replaces the previous skip-when-absent: the
+	// test now runs identically on CI and developer machines, and no real
+	// opencode process is ever launched (the old form leaked a live opencode
+	// TUI into the host on every run — `cmd.Process.Kill` only killed orch).
+	binDir := t.TempDir()
+	fakeOpencode := filepath.Join(binDir, "opencode")
+	if err := os.WriteFile(fakeOpencode, []byte("#!/bin/sh\nprintf 'fake opencode ready\\n'\nsleep 30\n"), 0755); err != nil {
+		t.Fatalf("write fake opencode: %v", err)
+	}
+
 	cmd := newOrchCommand("agent", "--backend", "opencode")
 	cmd.Dir = testRepo
-	env := make([]string, 0, len(os.Environ())+1)
+	env := make([]string, 0, len(os.Environ())+2)
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") {
+		if strings.HasPrefix(kv, "ORCH_REMOTE=") || strings.HasPrefix(kv, "ORCH_PROJECT=") || strings.HasPrefix(kv, "PATH=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	cmd.Env = append(env, "ORCH_PROJECT=")
+	cmd.Env = append(env,
+		"ORCH_PROJECT=",
+		"PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
 
-	cmd.Start()
-	time.Sleep(1 * time.Second)
-	cmd.Process.Kill()
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	// Own process group so teardown kills orch agent AND the opencode child
+	// it execs, not just the orch process.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start orch agent: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	exited := false
+	defer func() {
+		if exited {
+			return
+		}
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		<-done
+	}()
+
+	// The state file write is the LAST step of a multi-RPC chain through the
+	// suite daemon (getAPI construction, control-agent config, state read,
+	// control prompt write, state write — internal/cli/agent.go
+	// runOpenCodeAgent). Waiting a fixed wall-clock interval for it is a bet
+	// that the whole chain beats the clock: measured ~0.4s on a half-idle
+	// 16-core host and up to 1.9s under a full-suite compile storm, which is
+	// exactly the flake this test had. Observe the completion event instead,
+	// and surface the subprocess's own error output when it fails — the old
+	// fixed sleep discarded it, leaving only "no such file or directory".
+	stateFile := filepath.Join(orchDir, "control-agent.json")
+	deadline := time.Now().Add(workerReadyTimeout())
+	for {
+		if _, err := os.Stat(stateFile); err == nil {
+			break
+		}
+		select {
+		case err := <-done:
+			exited = true
+			t.Fatalf("orch agent exited before writing state file %s: %v\noutput:\n%s", stateFile, err, output.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			<-done
+			exited = true
+			t.Fatalf("state file %s did not appear within %v\noutput:\n%s", stateFile, workerReadyTimeout(), output.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 
 	if hasSession(controlAgentSessionName) {
 		t.Error("opencode backend should NOT create tmux session")
 	}
 
-	stateFile := filepath.Join(orchDir, "control-agent.json")
 	data, err := os.ReadFile(stateFile)
 	if err != nil {
 		t.Fatalf("failed to read state file: %v", err)

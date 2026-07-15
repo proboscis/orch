@@ -33,6 +33,20 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
+	// Build the orch binary BEFORE the suite swaps HOME/XDG into tmpDir.
+	// With HOME pointing at an empty temp dir, `go build` would see cold
+	// GOCACHE/GOMODCACHE and re-download every module and recompile the
+	// whole tree on every suite invocation — a multi-minute self-inflicted
+	// load storm (the very host pressure that flakes deadline-sensitive
+	// tests), a network dependency, and a read-only module cache written
+	// under tmpDir that os.RemoveAll cannot delete (the leftover
+	// orch-integration-*/home/go debris on developer machines).
+	orchBinary = filepath.Join(tmpDir, "orch")
+	buildCmd := exec.Command("go", "build", "-o", orchBinary, "../../cmd/orch")
+	if err := buildCmd.Run(); err != nil {
+		panic("failed to build orch: " + err.Error())
+	}
+
 	runtimeDir := filepath.Join(tmpDir, "runtime")
 	stateDir := filepath.Join(tmpDir, "state")
 	dataDir := filepath.Join(tmpDir, "data")
@@ -87,15 +101,39 @@ func TestMain(m *testing.M) {
 	// lifecycle test's unique --worker-id), so autostart is never needed
 	// here.
 	os.Setenv("ORCH_WORKER_AUTOSTART", "0")
-	// The suite creates and inspects tmux sessions on the default tmux
-	// server. When `go test` itself runs inside a tmux client (e.g. an
-	// agent pane on a private socket), an inherited $TMUX would make every
-	// child process target that outer server, while orch-created sessions
-	// land on the default server — assertions and cleanup would silently
-	// look at the wrong server. Unset it once here so the whole suite
-	// (test process, in-process worker, daemon and CLI subprocesses)
-	// behaves identically to a plain shell or CI.
+	// An inherited $TMUX would make test-side tmux invocations target the
+	// server hosting the `go test` process (e.g. an agent pane) instead of
+	// the server orch-created sessions land on. Unset it once here so the
+	// whole suite (test process, in-process worker, daemon and CLI
+	// subprocesses) behaves identically to a plain shell or CI.
 	os.Unsetenv("TMUX")
+	// The suite's whole tmux world lives on a PRIVATE tmux server: tmux
+	// resolves its socket from $TMUX_TMPDIR, and orch's tmux invocations
+	// scrub only TMUX/TMUX_PANE (internal/multiplexer/env.go), so the test
+	// daemon, CLI subprocesses, and the tmuxCmd helper all inherit this and
+	// keep observing one shared server — the property the previous
+	// default-server sharing actually needed. What sharing the user's
+	// default server additionally did was put every session on that server
+	// inside the blast radius of the suite's kill paths (session reaper,
+	// stop --force, setupAgentTest's fixed-name `orch-control-agent`
+	// cleanup, set-option -g mutations): on a developer machine those are
+	// real orch run sessions — possibly the very session running this suite
+	// — and killing the last one terminates the default server itself
+	// (observed as `no server running` after full-suite runs). The socket
+	// dir must stay short (macOS unix-socket path limit), hence /tmp.
+	tmuxDir, err := os.MkdirTemp("/tmp", "orch-suite-tmux-")
+	if err != nil {
+		panic("failed to create private tmux socket dir: " + err.Error())
+	}
+	os.Setenv("TMUX_TMPDIR", tmuxDir)
+	// Anchor session: a tmux server exits with its last session, and parts
+	// of the suite assume a server that outlives any one test (e.g. the
+	// startup-prompt-race regression reads global options before creating
+	// its own session) — an assumption the user's always-running default
+	// server used to satisfy ambiently. Recreate it hermetically for the
+	// private server's lifetime. Ignore the error: hosts without tmux skip
+	// the tmux-dependent tests anyway.
+	_ = tmuxCmd("new-session", "-d", "-s", "orch-suite-anchor", "sleep 86400").Run()
 	installFakeAgentBinaries(tmpDir)
 
 	addr, err := reserveLoopbackTCPAddr()
@@ -103,12 +141,6 @@ func TestMain(m *testing.M) {
 		panic("failed to reserve remote daemon address: " + err.Error())
 	}
 	remoteAddr = addr
-
-	orchBinary = filepath.Join(tmpDir, "orch")
-	cmd := exec.Command("go", "build", "-o", orchBinary, "../../cmd/orch")
-	if err := cmd.Run(); err != nil {
-		panic("failed to build orch: " + err.Error())
-	}
 
 	testVault = filepath.Join(tmpDir, "vault")
 	os.MkdirAll(filepath.Join(testVault, "issues"), 0755)
@@ -137,6 +169,10 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	stopTestWorker()
 	stopTestDaemon()
+	// Tear down the suite's private tmux server (sessions leaked by
+	// individual tests die with it; the user's default server is untouched).
+	_ = tmuxCmd("kill-server").Run()
+	_ = os.RemoveAll(tmuxDir)
 	_ = os.RemoveAll(tmpDir)
 	os.Exit(code)
 }
