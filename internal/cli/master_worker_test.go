@@ -88,12 +88,9 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	}
 
 	called := false
-	availabilityLogged := false
+	availabilityLoggedCh := make(chan string, 1)
 	logWorkerAgentAvailability = func(workerID string) {
-		availabilityLogged = true
-		if workerID != "worker-1" {
-			t.Fatalf("availability worker id = %q, want worker-1", workerID)
-		}
+		availabilityLoggedCh <- workerID
 	}
 	var got worker.RunConfig
 	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
@@ -111,11 +108,79 @@ func TestWorkerRunCommandInvokesExternalLoop(t *testing.T) {
 	if !called {
 		t.Fatal("expected runExternalWorkerLoop to be called")
 	}
-	if !availabilityLogged {
+	// Availability logging runs concurrently with registration (it carries
+	// no data the register RPC depends on), so cmd.Execute() returning does
+	// not guarantee it has already fired; wait for it with a bounded timeout.
+	select {
+	case gotWorkerID := <-availabilityLoggedCh:
+		if gotWorkerID != "worker-1" {
+			t.Fatalf("availability worker id = %q, want worker-1", gotWorkerID)
+		}
+	case <-time.After(2 * time.Second):
 		t.Fatal("expected worker startup to log agent availability")
 	}
 	if got.WorkerID != "worker-1" || !got.Once || got.PollInterval != 300*time.Millisecond || got.HeartbeatInterval != 7*time.Second {
 		t.Fatalf("unexpected run config: %+v", got)
+	}
+}
+
+// TestWorkerRunCommandDoesNotBlockRegistrationOnHungAvailabilityProbe guards
+// the worker-start-ready-wait-eaten-by-probe-timeout fix: a hung agent
+// availability probe must not delay (or prevent) master registration, since
+// the probe result carries no data the register RPC depends on.
+func TestWorkerRunCommandDoesNotBlockRegistrationOnHungAvailabilityProbe(t *testing.T) {
+	origRequire := requireDaemonForWorker
+	origRun := runExternalWorkerLoop
+	origLogAvailability := logWorkerAgentAvailability
+	t.Cleanup(func() {
+		requireDaemonForWorker = origRequire
+		runExternalWorkerLoop = origRun
+		logWorkerAgentAvailability = origLogAvailability
+	})
+
+	requireDaemonForWorker = func() (worker.Client, error) {
+		return &mockWorkerClient{}, nil
+	}
+
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	t.Cleanup(func() { close(releaseProbe) })
+	logWorkerAgentAvailability = func(workerID string) {
+		close(probeStarted)
+		<-releaseProbe // simulate a probe that hangs (e.g. a wedged agent CLI)
+	}
+
+	registeredCh := make(chan struct{})
+	runExternalWorkerLoop = func(client worker.Client, cfg worker.RunConfig) error {
+		close(registeredCh)
+		return nil
+	}
+
+	cmd := newWorkerRunCmd()
+	cmd.SetArgs([]string{"--worker-id", "worker-1", "--once"})
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute() }()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected availability probe to start")
+	}
+
+	select {
+	case <-registeredCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected registration to proceed without waiting for the hung availability probe")
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("worker run execute failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected worker run command to complete without waiting for the hung availability probe")
 	}
 }
 

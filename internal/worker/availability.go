@@ -9,8 +9,12 @@ import (
 )
 
 // LogAgentAvailability probes every known adapter once at worker process
-// startup. This runs before master registration so a healthy-looking worker
-// never hides the agent capabilities of its inherited environment.
+// startup and logs the result. It carries no data that master registration
+// depends on, so callers should run it concurrently with (not ahead of)
+// registration: a probe can block for up to the per-adapter probe timeout,
+// and serializing registration behind it would let one hung agent CLI eat
+// the caller's entire registration-readiness budget before the register RPC
+// is even sent.
 func LogAgentAvailability(workerID string) {
 	host, _ := os.Hostname()
 	if host == "" {

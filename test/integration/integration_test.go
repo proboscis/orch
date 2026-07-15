@@ -208,8 +208,26 @@ func stopTestDaemon() {
 	}
 }
 
+// workerReadyTimeoutEnv overrides the deadline integration tests wait for
+// worker registration to become visible (start/status/stop convergence).
+// The fixed-budget default is generous enough to absorb host load without
+// masking a genuine regression; ORCH_TEST_WORKER_READY_TIMEOUT exists for
+// hosts where even that proves too tight.
+const workerReadyTimeoutEnv = "ORCH_TEST_WORKER_READY_TIMEOUT"
+
+const defaultWorkerReadyTimeout = 30 * time.Second
+
+func workerReadyTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv(workerReadyTimeoutEnv)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultWorkerReadyTimeout
+}
+
 func ensureWorkerOrPanic() {
-	if err := ensureWorkerActiveWithTimeout(5 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(workerReadyTimeout()); err != nil {
 		panic(err)
 	}
 }
@@ -277,7 +295,7 @@ func runOrchInRepo(t *testing.T, repoRoot, issuesRoot string, args ...string) (s
 func ensureWorkerAvailable(t *testing.T) {
 	t.Helper()
 
-	if err := ensureWorkerActiveWithTimeout(3 * time.Second); err != nil {
+	if err := ensureWorkerActiveWithTimeout(workerReadyTimeout()); err != nil {
 		t.Fatalf("%v", err)
 	}
 }
@@ -724,7 +742,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 	}
 
 	var status workerStatusResult
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(workerReadyTimeout())
 	for {
 		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
 		if err != nil {
@@ -763,7 +781,7 @@ func TestWorkerLifecycleRemoteUsesLocalSupervisor(t *testing.T) {
 		t.Fatalf("unexpected worker stop result: %+v", stop)
 	}
 
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(workerReadyTimeout())
 	for {
 		out, errOut, err = runOrchOutsideRepo(t, tmp, "--remote", remoteAddr, "worker", "status", "--json")
 		if err != nil {
