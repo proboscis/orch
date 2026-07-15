@@ -151,6 +151,11 @@ func StartManaged(opts ManagedOptions) (*ManagedStartResult, error) {
 	if err := ensureManagedDirs(); err != nil {
 		return nil, err
 	}
+	identityLock, err := acquireManagedWorkerIdentityLock(profile.WorkerID)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseManagedWorkerIdentityLock(identityLock)
 
 	state, _ := loadManagedState(profile.StatePath)
 	if state != nil && state.LogPath != "" {
@@ -268,7 +273,7 @@ func StopManaged(opts ManagedOptions, all bool) (*ManagedStopResult, error) {
 		}
 		result := &ManagedStopResult{OK: true}
 		for _, profile := range profiles {
-			count, orphans, err := stopManagedProfile(profile)
+			count, orphans, err := stopManagedProfileLocked(profile)
 			if err != nil {
 				return nil, err
 			}
@@ -291,11 +296,26 @@ func StopManaged(opts ManagedOptions, all bool) (*ManagedStopResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	count, orphans, err := stopManagedProfile(profile)
+	count, orphans, err := stopManagedProfileLocked(profile)
 	if err != nil {
 		return nil, err
 	}
 	return &ManagedStopResult{OK: true, StoppedCount: count, OrphanPIDs: orphans}, nil
+}
+
+// stopManagedProfileLocked wraps stopManagedProfile in the per-worker-id
+// identity lock so stop calls (including each profile handled by
+// `stop --all`) serialize against a concurrent start/stop of the same id.
+func stopManagedProfileLocked(profile managedProfile) (int, []int, error) {
+	if err := ensureManagedDirs(); err != nil {
+		return 0, nil, err
+	}
+	identityLock, err := acquireManagedWorkerIdentityLock(profile.WorkerID)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer releaseManagedWorkerIdentityLock(identityLock)
+	return stopManagedProfile(profile)
 }
 
 func StatusManaged(opts ManagedOptions) (*ManagedStatus, error) {
@@ -486,6 +506,33 @@ func hasAnyPrefix(value string, prefixes []string) bool {
 		}
 	}
 	return false
+}
+
+// acquireManagedWorkerIdentityLock serializes managed lifecycle transitions
+// (start/stop) for one worker id across processes. The lock file is keyed by
+// the worker id alone — profile-independent, like the identity it guards
+// (ADR-0002 §4) — so concurrent start/stop calls for the same id with
+// different --remote spellings still serialize their reconcile-and-launch
+// sequences instead of interleaving.
+func acquireManagedWorkerIdentityLock(workerID string) (*os.File, error) {
+	lockPath := filepath.Join(xdg.WorkersRuntimeDir(), managedProfileKey(workerID, "")+".lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open managed worker identity lock for %q: %w", workerID, err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lockFile.Close()
+		return nil, fmt.Errorf("lock managed worker identity %q: %w", workerID, err)
+	}
+	return lockFile, nil
+}
+
+func releaseManagedWorkerIdentityLock(lockFile *os.File) {
+	if lockFile == nil {
+		return
+	}
+	_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+	_ = lockFile.Close()
 }
 
 func ensureManagedDirs() error {

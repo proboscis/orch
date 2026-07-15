@@ -6,6 +6,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -387,6 +389,87 @@ func TestStartManagedReusesManagedProcessAndStopsOrphan(t *testing.T) {
 	waitForProcessExit(t, orphan.Process.Pid, 3*time.Second)
 	if !daemon.IsProcessRunning(start.PID) {
 		t.Fatal("managed worker process must survive the reuse reconcile")
+	}
+}
+
+func TestManagedWorkerIdentityLockBlocksSameWorkerID(t *testing.T) {
+	setManagedWorkerTestEnv(t)
+	withManagedWorkerTestHooks(t)
+
+	lookupManagedWorkerRegistration = func(remoteAddr, workerID string) (*daemon.WorkerRegistration, error) {
+		return nil, nil
+	}
+
+	lock, err := acquireManagedWorkerIdentityLock("worker-serial")
+	if err != nil {
+		t.Fatalf("acquireManagedWorkerIdentityLock() error = %v", err)
+	}
+
+	// The lock is keyed by worker id alone: a stop for the same id under a
+	// DIFFERENT --remote profile must still contend on it.
+	done := make(chan struct{})
+	go func() {
+		_, _ = StopManaged(ManagedOptions{WorkerID: "worker-serial", RemoteAddr: "remotebox:7777"}, false)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("StopManaged completed while the identity lock was held")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	releaseManagedWorkerIdentityLock(lock)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("StopManaged did not proceed after the identity lock was released")
+	}
+}
+
+func TestManagedLifecycleSerializesPerWorkerID(t *testing.T) {
+	setManagedWorkerTestEnv(t)
+	withManagedWorkerTestHooks(t)
+
+	managedWorkerStartupTimeout = 2 * time.Second
+	managedWorkerStartupPoll = 25 * time.Millisecond
+	managedWorkerLaunchConfig = helperManagedWorkerLaunchConfig("registered")
+	lookupManagedWorkerRegistration = lookupRegistrationFromManagedState
+
+	// The process-table scan runs exactly once per start/stop, inside the
+	// identity lock. Two probes in flight at once would mean two lifecycle
+	// transitions interleaved their reconcile critical sections.
+	var inCritical, overlaps atomic.Int32
+	listWorkerProcesses = func() ([]workerProcess, error) {
+		if inCritical.Add(1) > 1 {
+			overlaps.Add(1)
+		}
+		time.Sleep(100 * time.Millisecond)
+		inCritical.Add(-1)
+		return nil, nil
+	}
+
+	opts := ManagedOptions{WorkerID: "worker-serial", RemoteAddr: "remotebox:7777"}
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = StartManaged(opts)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = StopManaged(opts, false)
+		}()
+	}
+	wg.Wait()
+
+	if n := overlaps.Load(); n != 0 {
+		t.Fatalf("reconcile critical sections overlapped %d times; the identity lock must serialize start/stop for one worker id", n)
+	}
+	if _, err := StopManaged(opts, false); err != nil {
+		t.Fatalf("final StopManaged() error = %v", err)
 	}
 }
 

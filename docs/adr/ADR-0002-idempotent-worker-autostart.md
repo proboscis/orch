@@ -84,6 +84,43 @@ untargeted run. Operators who want strict topology use the off-switch.
 on the master process it disables the reconciler, on the client it disables
 the pre-dispatch ensure. Default: enabled.
 
+### 4. Worker identity is host-local and profile-independent
+
+**Invariant: one host has at most one live `orch worker run` process for a
+given `worker-id`.** The master connection string is configuration of that
+worker, not part of its identity: `zeus:7777`, `127.0.0.1:7777`, and the
+local socket may all denote the same master, so no per-connection-string
+record (the managed state files are keyed by worker-id + remote) can decide
+whether a second process is a duplicate.
+
+`worker start` and `worker stop` therefore reconcile by `worker-id` against
+the live process table (`reconcileWorkerID` in `internal/worker/reconcile.go`)
+instead of trusting profile state: every local process whose command line
+claims the worker id — an exact `orch … worker run` subcommand match, with an
+absent `--worker-id` flag resolving to the host default id — is a claimant.
+The process-table check is required because an older binary generation, a
+changed `--remote` spelling, or deleted state/PID metadata leaves a live
+supervisor outside every current profile. `worker start` keeps only the
+requested profile's known-live PID, stops every other claimant, and launches
+only when no managed process remains. `worker stop` stops all claimants of
+the id, including state-less ones; `worker stop --all` additionally sweeps
+every remaining local `orch worker run` process. Lifecycle transitions for
+one worker id serialize on a host-local file lock keyed by the id alone
+(`acquireManagedWorkerIdentityLock`), so concurrent start/stop calls — even
+with different `--remote` spellings — cannot interleave their
+reconcile-and-launch sequences.
+
+Master-side duplicate eviction is not the enforcement layer of this decision.
+The worker protocol carries only `worker_id` on register, heartbeat, lease,
+acknowledgement, and unregister calls; once two processes claim the id, the
+master cannot tell which request belongs to which process, so it cannot
+selectively shut down the older one without introducing a new
+connection-instance identity across the whole lease protocol. Host-local
+process ownership is already the managed lifecycle boundary and also reaps
+older binaries that would not understand a new protocol response. The master
+only surfaces the symptom: it logs a warning when a worker id re-registers
+while the previous registration is still heartbeat-fresh.
+
 ## Resulting UX
 
 | Mode | Before | After |
@@ -108,6 +145,11 @@ the pre-dispatch ensure. Default: enabled.
   single-machine setups; docs and the embedded tutorial shrink accordingly.
 - The reconciler runs strictly inside the lease-failure path: zero cost when
   workers are healthy, no background polling, no new periodic loop.
+- Changing the configured master for a `worker-id` is a replacement, not a
+  second concurrent worker: `worker start` with the new `--remote` stops the
+  old supervisor before launching, so two processes never race for the same
+  lease identity after a master restart. Running workers for two masters on
+  one host requires two distinct worker ids.
 
 ### Environment normalization decision (2026-07-13)
 
