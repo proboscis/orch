@@ -1,0 +1,31 @@
+# land-queue 宣言(dotfiles ADR-DOTFILES-017 の機構、repo-local 方策)。
+# 敷設 2026-08-09(land-queue-all-repos-rollout 便 — operator 指示「全部の repo で
+# 利用したい」+ operator 決裁 sha d54350a8)。mixed repo(proboscis/orch* は
+# company-mixed-repos.txt 登載)— 編集は任意席・著述は個人系。
+# battery 実測 2026-08-09 全 green: make test(go test 直列・integration 含む
+# 約 5 分)+ make lint(semgrep 建築 lint — AGENTS.md 明文の正典)+ go build +
+# docs/adr 7 passed(49s)。
+# ⚠ make test の lock は /tmp/orch-go-test.lock(機械全域)— 他席のテスト走行と
+# 衝突すると loud fail(窓は失敗で返る = 正常系。再登記で再走)。
+
+[land-queue]
+enabled = true
+base = "main"
+
+[gate]
+full = "go build ./... && make test && make lint && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
+timeout_s = 2400
+
+[gate.tiers]
+"docs/adr/" = "PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
+"docs/" = "true"
+"notes/" = "true"
+"README.md" = "true"
+".agents/land-queue.toml" = "true"
+
+[policy]
+run_executors = ["landrun-orch", "landrun-rollout", "machine"]
+auto_run = true
+urgent_slots = 1
+push = "origin"
+base_move_follow_retries = 2
