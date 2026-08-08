@@ -160,3 +160,9 @@ See [GitHub Releases](https://github.com/proboscis/orch/releases) for binaries.
 License: TBD. During the beta, orch is provided for **evaluation purposes
 only** — no license is granted yet, and redistribution is not permitted.
 A license will be chosen before general availability.
+
+## main への着地(2026-08-09〜)
+
+公開(origin main への push)は land queue の窓が行う — 変更は branch を push して `ai land request` で列へ(直 push は guard が block)。
+
+検査 = `go build` + `make test` + `make lint` + `docs/adr` pytest。
