@@ -23,7 +23,11 @@ timeout_s = 2400
 # 先例 = dotfiles / herdr-hud D568 / ACP / doeff(2026-08-17 同日)。
 mode = "focus"
 # 方策宣言そのものへの変更だけは常時 full battery(自己参照の fail-closed)
-full_paths = [".agents/land-queue.toml"]
+# ⚠ 2026-08-17 operator 逐語「全量検査を無効にしてくれ」: full_paths を空に —
+# 着地の窓はいかなる path でも全量検査(gate.full)を走らせない。gate.full の
+# 唯一の消費者 = 日次検証便(ai land verify・launchd)。方策 toml の変更も
+# 窓では力学のみで着地する(検分は事後 + fix-forward)。復活は operator 裁定で。
+full_paths = []
 
 # R-94ede4bc 投機列車(operator 直接指示 2026-08-17「merge queue の投機テストを
 # 全 repo で適用」— 連邦の機構 = dotfiles land.py・先例 = dotfiles 裁定 2026-08-16
