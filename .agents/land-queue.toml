@@ -16,6 +16,21 @@ base = "main"
 full = "go build ./... && make test && make lint && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
 timeout_s = 2400
 
+# R-94ede4bc 投機列車(operator 直接指示 2026-08-17「merge queue の投機テストを
+# 全 repo で適用」— 連邦の機構 = dotfiles land.py・先例 = dotfiles 裁定 2026-08-16
+# decision-land-speculation-enable / herdr-hud D568)。窓は確定 train(消費済み
+# 緑の先端・公開対象)と投機 tip を分け、gate の実行だけを backend へ並列に
+# 発注する(判定の消費は直列同値・赤 1 便で窓ごと abort する形の根治)。厳密 bool。
+# 戻し方 = この行を外す便を着地させる(既定 off・law opt-in-inert)。
+speculation = true
+# 検査 backend(law policy-in-toml)。重い cold build を重ねて飽和機の load を倍にしない保守初期値。
+# 実測(last_run.speculation)を見て上げる — 恒久解 = L440 の k3s self-hosted
+# runner(external backend 段 2)への移設。
+[gate.backend]
+kind = "local"
+max_parallel = 1
+join_s = 60
+
 [gate.tiers]
 "docs/adr/" = "PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
 "docs/" = "true"
