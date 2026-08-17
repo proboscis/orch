@@ -16,6 +16,15 @@ base = "main"
 full = "go build ./... && make test && make lint && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
 timeout_s = 2400
 
+# R-7a95702d focus mode(operator 直命 2026-08-17「全ての repo の merge queue が
+# 10 分以上待っていてはいけない」・同日逐語「mergeにテストは必須じゃない」):
+# 着地の門は merge の力学のみ。テストは事後 = 日次全量検査(gate.full を
+# ai land verify が使う — launchd 便は別途敷設)+ stable 昇格 + fix-forward。
+# 先例 = dotfiles / herdr-hud D568 / ACP / doeff(2026-08-17 同日)。
+mode = "focus"
+# 方策宣言そのものへの変更だけは常時 full battery(自己参照の fail-closed)
+full_paths = [".agents/land-queue.toml"]
+
 # R-94ede4bc 投機列車(operator 直接指示 2026-08-17「merge queue の投機テストを
 # 全 repo で適用」— 連邦の機構 = dotfiles land.py・先例 = dotfiles 裁定 2026-08-16
 # decision-land-speculation-enable / herdr-hud D568)。窓は確定 train(消費済み
@@ -44,3 +53,5 @@ auto_run = true
 urgent_slots = 1
 push = "origin"
 base_move_follow_retries = 2
+# 日次検証の全走が緑の断面だけが昇格する(R-7a95702d)
+stable_branch = "stable"
