@@ -62,11 +62,20 @@ func PopulateRunInfo(runs []*model.Run) InfoMap {
 
 // PopulateRunInfoWithClient populates PR URLs and returns PR info for each run's
 // branch using the provided GitHub client.
+//
+// Resolving the repo root from the process working directory is an ambient read,
+// so it happens here at the boundary and nowhere deeper. The core below takes
+// repoRoot as an argument, which keeps its result a function of its inputs
+// instead of a function of where the caller (or a test binary) happens to run.
 func PopulateRunInfoWithClient(client github.Client, runs []*model.Run) InfoMap {
-	return populateRunInfoWithClient(client, runs, time.Now)
+	repoRoot, err := git.FindMainRepoRoot("")
+	if err != nil {
+		return make(InfoMap)
+	}
+	return populateRunInfoWithClient(client, runs, repoRoot, time.Now)
 }
 
-func populateRunInfoWithClient(client github.Client, runs []*model.Run, now func() time.Time) InfoMap {
+func populateRunInfoWithClient(client github.Client, runs []*model.Run, repoRoot string, now func() time.Time) InfoMap {
 	prInfoMap := make(InfoMap)
 	if len(runs) == 0 {
 		return prInfoMap
@@ -77,11 +86,6 @@ func populateRunInfoWithClient(client github.Client, runs []*model.Run, now func
 	}
 
 	if !client.IsAvailable() {
-		return prInfoMap
-	}
-
-	repoRoot, err := git.FindMainRepoRoot("")
-	if err != nil {
 		return prInfoMap
 	}
 

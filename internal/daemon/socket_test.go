@@ -410,9 +410,41 @@ func createGitRepoWithOrigin(t *testing.T, remoteURL string) string {
 	run("git", "init", repo)
 	run("git", "-C", repo, "config", "user.email", "test@example.com")
 	run("git", "-C", repo, "config", "user.name", "Test User")
+	// The origin URL exists so repo-ID derivation has something to parse; it
+	// names a host this test does not own, and TestMain keeps any code path that
+	// tries to reach it from leaving the machine.
 	run("git", "-C", repo, "remote", "add", "origin", remoteURL)
 
 	return repo
+}
+
+// openCodeProjectFixture returns a project root and the repo ID the daemon
+// derives from it, for the opencode send tests below.
+//
+// Both used to be read off whatever checkout the test binary happened to run in,
+// which made these tests fail outright on a machine that received only the
+// sources. Nothing here needs the real repository: the fake opencode server only
+// has to echo back a project root and an id that the daemon's own derivation
+// agrees with, so a fixture repository named after the test says the same thing
+// and says it the same way everywhere.
+func openCodeProjectFixture(t *testing.T, name string) (string, model.RepoID) {
+	t.Helper()
+
+	// processSendOpenCode resolves the run's worktree through git before matching
+	// it against what the opencode server reports, so the fixture has to name the
+	// root the same way git does. A temporary directory does not: on macOS it sits
+	// under /var, which is a symlink to /private/var, and the unresolved form would
+	// look like a different project and trigger a real server restart.
+	repo := createGitRepoWithOrigin(t, fmt.Sprintf("https://github.com/example/%s.git", name))
+	projectRoot, err := git.FindRepoRoot(repo)
+	if err != nil {
+		t.Fatalf("failed to resolve project root for %s: %v", repo, err)
+	}
+	repoID, err := xdg.RepoIDStrict(projectRoot)
+	if err != nil {
+		t.Fatalf("failed to resolve repo id for %s: %v", projectRoot, err)
+	}
+	return projectRoot, repoID
 }
 
 func initGitRepoWithCommit(t *testing.T) string {
@@ -1149,16 +1181,16 @@ func TestSocketServerSendRequestMissingConfig(t *testing.T) {
 }
 
 func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
-	projectRoot, err := git.FindRepoRoot(".")
-	if err != nil {
-		t.Fatalf("failed to find repo root: %v", err)
-	}
-	repoID, err := xdg.RepoIDStrict(projectRoot)
-	if err != nil {
-		t.Fatalf("failed to resolve repo id: %v", err)
-	}
+	projectRoot, repoID := openCodeProjectFixture(t, "send-after-ack")
 
-	const bodyDelay = 600 * time.Millisecond
+	// The property under test is "the send returns on the ACK without waiting for
+	// the response body". A wall-clock budget only approximates it, and a loaded
+	// machine spends longer than the budget on the git and HTTP work that precedes
+	// the send, failing a correct implementation. So the body is withheld until
+	// this test releases it, which makes the property exact: the send can only
+	// return successfully by returning on the ACK, and an implementation that waits
+	// for the body instead runs out its own ACK deadline and reports it.
+	releaseBody := make(chan struct{})
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/global/health":
@@ -1172,13 +1204,18 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}
-			time.Sleep(bodyDelay)
+			select {
+			case <-releaseBody:
+			case <-r.Context().Done():
+				return
+			}
 			_, _ = io.WriteString(w, `{"status":"accepted"}`)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer testServer.Close()
+	defer close(releaseBody)
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -1204,29 +1241,20 @@ func TestProcessSendOpenCodeReturnsAfterAck(t *testing.T) {
 		WorktreePath:      projectRoot,
 	}
 
-	startedAt := time.Now()
-	err = server.processSendOpenCode(nil, ref, run, "please rebase")
-	elapsed := time.Since(startedAt)
-
-	if err != nil {
-		t.Fatalf("processSendOpenCode() error = %v", err)
-	}
-	if elapsed >= bodyDelay {
-		t.Fatalf("expected send to return before response body completion, elapsed=%s bodyDelay=%s", elapsed, bodyDelay)
+	if err := server.processSendOpenCode(nil, ref, run, "please rebase"); err != nil {
+		t.Fatalf("send waited for the response body instead of returning on the ACK: %v", err)
 	}
 }
 
 func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
-	projectRoot, err := git.FindRepoRoot(".")
-	if err != nil {
-		t.Fatalf("failed to find repo root: %v", err)
-	}
-	repoID, err := xdg.RepoIDStrict(projectRoot)
-	if err != nil {
-		t.Fatalf("failed to resolve repo id: %v", err)
-	}
+	projectRoot, repoID := openCodeProjectFixture(t, "send-slow-ack")
 
-	const ackDelay = 300 * time.Millisecond
+	// The server never answers until this test releases it, which is what "without
+	// ACK" means. Timing the call cannot state the property: the ACK deadline is
+	// 80ms while the queued-message confirmation that runs afterwards takes several
+	// hundred more, so no wall-clock bound separates "gave up at its deadline" from
+	// "waited for the agent".
+	releaseAck := make(chan struct{})
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/global/health":
@@ -1236,7 +1264,11 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, fmt.Sprintf(`{"id":"%s","worktree":%q,"sandboxes":[]}`, repoID, projectRoot))
 		case strings.HasSuffix(r.URL.Path, "/message"):
-			time.Sleep(ackDelay)
+			select {
+			case <-releaseAck:
+			case <-r.Context().Done():
+				return
+			}
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = io.WriteString(w, `{"status":"accepted"}`)
 		default:
@@ -1244,6 +1276,7 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 		}
 	}))
 	defer testServer.Close()
+	defer close(releaseAck)
 
 	logger := log.New(io.Discard, "", 0)
 	server := NewSocketServer(nil, logger)
@@ -1269,9 +1302,7 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 		WorktreePath:      projectRoot,
 	}
 
-	startedAt := time.Now()
-	err = server.processSendOpenCode(nil, ref, run, "please retry")
-	elapsed := time.Since(startedAt)
+	err := server.processSendOpenCode(nil, ref, run, "please retry")
 
 	if err == nil {
 		t.Fatal("expected timeout error when ACK is too slow")
@@ -1279,25 +1310,16 @@ func TestProcessSendOpenCodeTimesOutPromptlyWithoutAck(t *testing.T) {
 	if !strings.Contains(err.Error(), "context deadline exceeded") {
 		t.Fatalf("expected context deadline exceeded error, got: %v", err)
 	}
-	if elapsed >= time.Second {
-		t.Fatalf("expected send to fail promptly, elapsed=%s", elapsed)
-	}
 }
 
 func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
-	projectRoot, err := git.FindRepoRoot(".")
-	if err != nil {
-		t.Fatalf("failed to find repo root: %v", err)
-	}
-	repoID, err := xdg.RepoIDStrict(projectRoot)
-	if err != nil {
-		t.Fatalf("failed to resolve repo id: %v", err)
-	}
+	projectRoot, repoID := openCodeProjectFixture(t, "send-queued-after-timeout")
 
 	const ackDelay = 300 * time.Millisecond
 	var (
-		mu       sync.Mutex
-		messages []agent.Message
+		mu           sync.Mutex
+		messages     []agent.Message
+		confirmPolls int
 	)
 
 	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1340,6 +1362,7 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 		case r.URL.Path == "/session/ses_queued/message" && r.Method == http.MethodGet:
 			mu.Lock()
 			copied := append([]agent.Message(nil), messages...)
+			confirmPolls++
 			mu.Unlock()
 
 			w.Header().Set("Content-Type", "application/json")
@@ -1382,15 +1405,19 @@ func TestProcessSendOpenCodeAckTimeoutButQueuedMessageSucceeds(t *testing.T) {
 		WorktreePath:      projectRoot,
 	}
 
-	startedAt := time.Now()
-	err = server.processSendOpenCode(nil, ref, run, "please queue this")
-	elapsed := time.Since(startedAt)
-
-	if err != nil {
+	if err := server.processSendOpenCode(nil, ref, run, "please queue this"); err != nil {
 		t.Fatalf("processSendOpenCode() error = %v", err)
 	}
-	if elapsed >= 2*time.Second {
-		t.Fatalf("expected queued-message confirmation to return quickly, elapsed=%s", elapsed)
+
+	// The ACK deadline is shorter than the delay the server holds it for, so the
+	// only way this send can succeed is by confirming the message landed in the
+	// session. Asserting the confirmation was actually polled states that, where
+	// the wall-clock bound this replaces only said the call was fast.
+	mu.Lock()
+	polls := confirmPolls
+	mu.Unlock()
+	if polls == 0 {
+		t.Fatal("send succeeded without polling the session for the queued message")
 	}
 }
 

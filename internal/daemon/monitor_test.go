@@ -700,11 +700,17 @@ func TestInferStatusFromGitStateMapsPROutcomes(t *testing.T) {
 				}
 				return &pr.Info{URL: "https://github.com/org/repo/pull/125", Number: 125, State: tt.prState}, nil
 			}
+			// gatherGitEvidence only consults the injected PR lookup once it has
+			// resolved a repo root from the worktree, so the worktree has to be a
+			// real repository. It used to be ".", i.e. whatever directory the test
+			// binary ran in: with no checkout around the sources the root stayed
+			// empty, the injected lookup was never called, and all three subtests
+			// asserted against an empty verdict.
 			run := &model.Run{
 				IssueID:      "test-issue",
 				RunID:        "run-1",
 				Branch:       "feature/test",
-				WorktreePath: ".",
+				WorktreePath: initGitRepoWithCommit(t),
 			}
 			st := &mockStoreRecordingEvents{
 				mockStoreForUpdate: mockStoreForUpdate{issue: &model.Issue{ID: "test-issue", Status: model.IssueStatusOpen}},

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/proboscis/orch/internal/git"
 	"github.com/proboscis/orch/internal/model"
 )
 
@@ -87,7 +86,7 @@ func TestPopulateRunInfoWithClient_UsesInjectedClient(t *testing.T) {
 		},
 	}
 
-	infoMap := PopulateRunInfoWithClient(client, runs)
+	infoMap := populateRunInfoWithClient(client, runs, t.TempDir(), time.Now)
 	info := infoMap["feature/cache"]
 	if info == nil {
 		t.Fatalf("expected PR info for branch")
@@ -97,6 +96,40 @@ func TestPopulateRunInfoWithClient_UsesInjectedClient(t *testing.T) {
 	}
 	if runs[0].PRUrl != "https://github.com/acme/repo/pull/19" {
 		t.Fatalf("run.PRUrl = %q", runs[0].PRUrl)
+	}
+}
+
+// Hermeticity regression: the lookup core must be a function of its arguments,
+// not of the directory the test binary runs in. The counterexample this pins is
+// the shipped tree being verified on a machine that has no checkout around it
+// (the daemon's `.git`-less rsync of the sources): populateRunInfoWithClient
+// used to resolve its cache scope from the process working directory, so with no
+// ambient repository it returned an empty map and every injected-client test
+// silently asserted nothing.
+func TestPopulateRunInfoWithClient_DoesNotDependOnAmbientCheckout(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	// A directory that is deliberately not inside any git repository.
+	t.Chdir(t.TempDir())
+
+	client := &fakeGitHubClient{
+		available: true,
+		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/23","number":23,"state":"OPEN","headRefName":"feature/hermetic"}]`),
+	}
+	runs := []*model.Run{{IssueID: "orch-hermetic", RunID: "run-1", Branch: "feature/hermetic"}}
+
+	infoMap := populateRunInfoWithClient(client, runs, t.TempDir(), time.Now)
+	if infoMap["feature/hermetic"] == nil {
+		t.Fatal("core consulted the ambient checkout: no PR info returned outside a git repository")
+	}
+	if client.callCount != 1 {
+		t.Fatalf("expected the injected client to be asked exactly once, got %d calls", client.callCount)
+	}
+
+	// The ambient read is allowed at the exported boundary and nowhere else, so
+	// the exported entrypoint reports "no scope" rather than inventing one.
+	ambient := []*model.Run{{IssueID: "orch-hermetic", RunID: "run-2", Branch: "feature/hermetic"}}
+	if got := PopulateRunInfoWithClient(client, ambient); len(got) != 0 {
+		t.Fatalf("exported entrypoint must return an empty map with no ambient repo, got %v", got)
 	}
 }
 
@@ -121,7 +154,7 @@ func TestPopulateRunInfo_RespectsMaxFetches(t *testing.T) {
 		}
 	}
 
-	PopulateRunInfoWithClient(client, runs)
+	populateRunInfoWithClient(client, runs, t.TempDir(), time.Now)
 
 	if client.callCount > cacheMaxFetches {
 		t.Fatalf("expected at most %d API calls (cacheMaxFetches), got %d",
@@ -137,17 +170,24 @@ func TestPopulateRunInfo_SameKeyCacheHitSkipsFetch(t *testing.T) {
 		output:    []byte(`[{"url":"https://github.com/acme/repo/pull/1","number":1,"state":"OPEN","headRefName":"feature/test"}]`),
 	}
 
+	// Both calls must share one cache scope, or the second call looks up a
+	// different cache file and the throttle under test never applies.
+	repoRoot := t.TempDir()
+
 	runs := []*model.Run{
 		{IssueID: "test", RunID: "run-1", Branch: "branch-a"},
 	}
 
-	PopulateRunInfoWithClient(client, runs)
+	populateRunInfoWithClient(client, runs, repoRoot, time.Now)
 	firstCallCount := client.callCount
+	if firstCallCount != 1 {
+		t.Fatalf("first populate: expected 1 API call, got %d", firstCallCount)
+	}
 
 	runs2 := []*model.Run{
 		{IssueID: "test", RunID: "run-2", Branch: "branch-a"},
 	}
-	PopulateRunInfoWithClient(client, runs2)
+	populateRunInfoWithClient(client, runs2, repoRoot, time.Now)
 
 	if client.callCount != firstCallCount {
 		t.Fatalf("expected 0 additional API calls within cacheMinFetchInterval, got %d",
@@ -245,10 +285,7 @@ func TestLookupInfoByURL_ExpiredKeysDoNotStarveEachOther(t *testing.T) {
 func TestPopulateRunInfo_ExpiredBranchesDoNotStarveEachOther(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	repoRoot, err := git.FindMainRepoRoot("")
-	if err != nil {
-		t.Skip("no git repo root available")
-	}
+	repoRoot := t.TempDir()
 	now := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC)
 	cachePath, err := getCachePath(repoRoot)
 	if err != nil {
@@ -281,7 +318,7 @@ func TestPopulateRunInfo_ExpiredBranchesDoNotStarveEachOther(t *testing.T) {
 			[]byte(`[{"url":"https://github.com/acme/repo/pull/303","number":303,"state":"OPEN","headRefName":"feature/303"}]`),
 		},
 	}
-	infoMap := populateRunInfoWithClient(client, runs, func() time.Time { return now })
+	infoMap := populateRunInfoWithClient(client, runs, repoRoot, func() time.Time { return now })
 
 	if client.callCount != len(branches) {
 		t.Fatalf("expected every expired branch to fetch once; got %d calls for %d keys", client.callCount, len(branches))
@@ -379,10 +416,7 @@ func TestLookupInfoByURL_PreLawEntryBypassesThrottle(t *testing.T) {
 func TestPopulateRunInfo_CacheHitSkipsAPI(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
-	repoRoot, err := git.FindMainRepoRoot("")
-	if err != nil {
-		t.Skip("no git repo root available")
-	}
+	repoRoot := t.TempDir()
 	branch := "feature/pre-cached"
 
 	cachePath, err := getCachePath(repoRoot)
@@ -410,7 +444,7 @@ func TestPopulateRunInfo_CacheHitSkipsAPI(t *testing.T) {
 		Branch:  branch,
 	}
 
-	infoMap := PopulateRunInfoWithClient(client, []*model.Run{run})
+	infoMap := populateRunInfoWithClient(client, []*model.Run{run}, repoRoot, time.Now)
 	info := infoMap[branch]
 
 	if info == nil {

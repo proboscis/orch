@@ -324,7 +324,7 @@ wheels = [
 [[package]]
 name = "doeff"
 version = "0.4.1"
-source = { git = "https://github.com/proboscis/doeff?rev=678c18405145e64aee24ee0339c8de14b43d810e#678c18405145e64aee24ee0339c8de14b43d810e" }
+source = { git = "https://github.com/proboscis/doeff?rev=61ca71b6584a56d6c7ef91051af77d0630dfc679#61ca71b6584a56d6c7ef91051af77d0630dfc679" }
 dependencies = [
     { name = "doeff-core-effects" },
     { name = "doeff-vm" },
@@ -333,17 +333,18 @@ dependencies = [
 [[package]]
 name = "doeff-adr"
 version = "0.1.0"
-source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-adr&rev=678c18405145e64aee24ee0339c8de14b43d810e#678c18405145e64aee24ee0339c8de14b43d810e" }
+source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-adr&rev=61ca71b6584a56d6c7ef91051af77d0630dfc679#61ca71b6584a56d6c7ef91051af77d0630dfc679" }
 dependencies = [
     { name = "doeff-hy" },
     { name = "hy" },
+    { name = "pytest" },
     { name = "pyyaml" },
 ]
 
 [[package]]
 name = "doeff-core-effects"
 version = "0.1.0"
-source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-core-effects&rev=678c18405145e64aee24ee0339c8de14b43d810e#678c18405145e64aee24ee0339c8de14b43d810e" }
+source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-core-effects&rev=61ca71b6584a56d6c7ef91051af77d0630dfc679#61ca71b6584a56d6c7ef91051af77d0630dfc679" }
 dependencies = [
     { name = "doeff" },
     { name = "doeff-hy" },
@@ -354,7 +355,7 @@ dependencies = [
 [[package]]
 name = "doeff-hy"
 version = "0.1.0"
-source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-hy&rev=678c18405145e64aee24ee0339c8de14b43d810e#678c18405145e64aee24ee0339c8de14b43d810e" }
+source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-hy&rev=61ca71b6584a56d6c7ef91051af77d0630dfc679#61ca71b6584a56d6c7ef91051af77d0630dfc679" }
 dependencies = [
     { name = "doeff" },
     { name = "doeff-core-effects" },
@@ -364,7 +365,7 @@ dependencies = [
 [[package]]
 name = "doeff-vm"
 version = "0.2.0"
-source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-vm&rev=678c18405145e64aee24ee0339c8de14b43d810e#678c18405145e64aee24ee0339c8de14b43d810e" }
+source = { git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-vm&rev=61ca71b6584a56d6c7ef91051af77d0630dfc679#61ca71b6584a56d6c7ef91051af77d0630dfc679" }
 
 [[package]]
 name = "exceptiongroup"
@@ -740,7 +741,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "doeff-adr", git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-adr&rev=678c18405145e64aee24ee0339c8de14b43d810e" },
+    { name = "doeff-adr", git = "https://github.com/proboscis/doeff?subdirectory=packages%2Fdoeff-adr&rev=61ca71b6584a56d6c7ef91051af77d0630dfc679" },
     { name = "pytest", specifier = ">=8" },
     { name = "semgrep", specifier = ">=1.80" },
 ]

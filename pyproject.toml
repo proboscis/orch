@@ -16,7 +16,13 @@ dev = [
 package = false
 
 [tool.uv.sources]
-doeff-adr = { git = "https://github.com/proboscis/doeff", subdirectory = "packages/doeff-adr", rev = "678c18405145e64aee24ee0339c8de14b43d810e" }
+# Pinned to the doeff commit that stopped doeff-adr's semgrep runner from
+# resolving its config against the nearest .git directory. The old pin walked up
+# from the working directory looking for .git and raised RuntimeError when there
+# was none, so every defsemgrep ADR in docs/adr failed on a machine that received
+# only the tracked sources. doeff-adr now resolves the config against the tree it
+# was handed.
+doeff-adr = { git = "https://github.com/proboscis/doeff", subdirectory = "packages/doeff-adr", rev = "61ca71b6584a56d6c7ef91051af77d0630dfc679" }
 
 [tool.pytest.ini_options]
 testpaths = ["docs/adr"]
