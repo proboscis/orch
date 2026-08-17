@@ -13,8 +13,22 @@ enabled = true
 base = "main"
 
 [gate]
-full = "go build ./... && make test && make lint && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
-timeout_s = 2400
+# 実行面 = zeus(k3s クラスタ機)— operator 裁定伝言 2026-08-17『テストはk3sでやって』
+# (方向宣言 land-verify-tests-on-k3s)。remote_check が tree を送り逐語実行し、
+# 不達は --fallback-local でこの機体へ可視に倒す(ran= の 1 行が log に残る)。
+# 分層(実測 2026-08-17): ① internal/daemon と internal/pr のテストは囲いの checkout
+# (origin/main 参照・worktree 作成)と GitHub への実 fetch(資格情報)に依存して
+# 遠隔 tree で構造的に赤 — この 2 package だけ後段で local 実行する(TEST_PKGS は
+# Makefile の公式 knob。局所実測 = daemon 14.6s + pr 0.1s)② docs/adr(pytest 7 本・
+# 15s)も local — 依存 doeff-adr の registry が repo root を .git で探し、遠隔 tree
+# (.git なし)で defsemgrep 2 本が立たない(doeff 本体は 61ca71b6 で根治済み・orch の
+# pin が旧版)。残り全 package の build + test + lint は zeus(go 1.25.3 は ~/.local
+# 導入済み)。根治(テストの密閉化 + doeff-adr pin 更新)は別便で起票済み。
+# $(go list ...) は Mac 側では単引用で保護され zeus 側の sh が評価する。
+full = "python3 $HOME/dotfiles/agentcli/src/agentcli/remote_check.py --node zeus --tree . --label orch-gate-full --sync-timeout 600 --run-timeout 1800 --fallback-local -- sh -c 'go build ./... && make test TEST_PKGS=\"$(go list ./... | grep -vE \"internal/(daemon|pr)$\" | tr \"\\n\" \" \")\" && make lint' && make test TEST_PKGS=\"./internal/daemon ./internal/pr\" && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q"
+# 2400 → 3600(2026-08-17): 遠隔の最悪(sync 600 + run 1800)+ 後段 local 2 package
+# の合計が旧値を越えるため。
+timeout_s = 3600
 
 # R-7a95702d focus mode(operator 直命 2026-08-17「全ての repo の merge queue が
 # 10 分以上待っていてはいけない」・同日逐語「mergeにテストは必須じゃない」):
