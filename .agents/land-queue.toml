@@ -72,3 +72,16 @@ push = "origin"
 base_move_follow_retries = 2
 # 日次検証の全走が緑の断面だけが昇格する(R-7a95702d)
 stable_branch = "stable"
+# 日次の全体検証(ai land verify)が赤になった時の報せの宛先(ADR-DOTFILES-017 R-55ee0b39 ②・card acp:kanban-issue:ki-03598df36cce)。
+# **会話 id ちょうど** — 席名・pane・作業セッション名に結ばない(撤収すると解けない)。承認の名簿 policy.reviewers は
+#   「承認してよい資格」であって宛先ではない(別の問い)ので、後退先にも使わない。
+# 宛先の会話 = c-D6AFCPB1VRMNTVN9ECSZMCAS3T = agora-redesign #467(日次の赤が見えない)の根の配り手で、この repo の日次を
+#   母集団に含める card ki-03598df36cce を開いて計画の依頼を出した会話。ACP の会話の行の status.turnRoute が agent-job
+#   なので ACP の郵便の経路が在る(pane の会話には経路が無い — herdr-hud の宣言 c-01M278C… がその形)。
+#   選んだ根拠と代案 = card ki-03598df36cce のスレッド(計画段の裁定 2026-09-19)。
+# ⚠ 既知の滞留(R-55ee0b39 ⑧・card ki-9655dc6151b3): 差出人が land-queue(operator でも会話でもない)なので ACP の配達の
+#   判定は inReplyTo の無いこの報せを held にする。⇒ この宣言で台帳の結末は no-addressee(誰も呼ばれていない)から
+#   posted → 次の走の読み直しで refused(held: sender-is-not-operator-or-conversation)に変わる。台帳が「届かなかった」を
+#   正しく名乗る形が先で、会話の手番に載せるのは ACP 側の別の決定。
+# 戻し方 = この 1 行を消す(two-way door・決定の記録 = card ki-03598df36cce のスレッド 2026-09-19)。
+verify_notice_to = ["c-D6AFCPB1VRMNTVN9ECSZMCAS3T"]
