@@ -85,3 +85,52 @@ stable_branch = "stable"
 #   正しく名乗る形が先で、会話の手番に載せるのは ACP 側の別の決定。
 # 戻し方 = この 1 行を消す(two-way door・決定の記録 = card ki-03598df36cce のスレッド 2026-09-19)。
 verify_notice_to = ["c-D6AFCPB1VRMNTVN9ECSZMCAS3T"]
+
+[test-admission]
+# 広い test 走行の受付(法 ADR-DOTFILES-027 R-9c56a2dd broad-test-runs-need-an-explicit-grant・
+# card acp:kanban-issue:ki-f486a3cbb6a3)。判定(広いか)・30 分の窓の合算・許可の消費は
+# **正本 1 点**(~/dotfiles/agent/tests/broad_run_admission.py)が持ち、この repo は **値だけ** を
+# 宣言する。⚠ 判定の写しを toml にも conftest にも置かない — 写すと方策を動かした日に片方だけ
+# 古い答えを返す(先に据えた区画 argus / pr-review / herdr-hud / doeff / agora-controllers と同じ作法)。
+#
+# 結線 = **conftest.py 2 本**。この repo は pytest の面が 2 つ在り、rootdir が別々だから:
+#   1. repo の root の conftest.py … root の pyproject.toml が [tool.pytest.ini_options] を持つので
+#      rootdir = repo の根で固定され、上の [gate].full の `uv run pytest docs/adr` も焦点走も読む。
+#   2. orch-monitor-tui/conftest.py … orch-monitor-tui/ は自前の pyproject.toml に ini を持つので
+#      そこで撃った走行の rootdir は **その dir** になり、1. は読まれない(pytest は rootdir より上へ
+#      conftest を遡らない)。方策はこの表 1 枚のままでよい — 受付は対象から .agents/land-queue.toml を
+#      持つ根まで遡って方策を引く。
+# ⚠ 宣言(この表)と委譲(conftest 2 本)は **対で 1 commit**。表だけ消すと read_policy →
+#   PolicyUndeclared → pytest.UsageError(rc 4)で本数に依らず焦点走まで全滅する(受付の fail-closed)。
+#   戻し方 = commit ごと revert(two-way door)。
+#
+# per_run_max = 1 走行で選ばれる test の上限(超えたら広い = 許可が要る)。
+#   実測 2026-09-20(会社 Mac・origin/main@d11736ca・`--co` の収集だけ):
+#     - 上の [gate].full の pytest の処理ステージ = `uv run pytest docs/adr -q` = **7 本**(実走 21.6 秒)。
+#       [gate.tiers] の "docs/adr/" も同じ 7 本。7 ≤ 100 ⇒ 広くないので受付は素通しする。
+#     - もう 1 つの面 orch-monitor-tui の全数 = `uv run --extra test pytest tests/` = **300 本**
+#       (+ 収集の error 6 件 — protobuf の版の食い違いで、この便より前から在る別件)。
+#       300 > 100 ⇒ 許可が要る。**この repo で受付が本当に噛むのはここ**で、法の目的もここに在る。
+#   ⇒ 100 は docs/adr の全部(7)と tui の焦点走(1 file = 最大 60 本規模)を許可なしで通し、
+#     tui の全数(300)を断る位置。
+# window_max = 30 分の窓の中の distinct な test の上限(分割して撃っても合算で止まる)。
+#   200 = per_run_max の 2 倍 — tui の焦点走を何本か重ねても届かず、全数を 3 分割しても合算で止まる。
+per_run_max = 100
+window_max = 200
+window_s = 1800
+# scope=full の許可が消費できる pytest 走行の数 = 上の [gate].full の pytest の処理ステージの数。
+# gate.full は `go build && make test && make lint && uv run pytest docs/adr -q` の 1 本鎖で、
+# pytest はその最後の 1 回ちょうど ⇒ 1。
+full_sessions = 1
+# ⚠ cluster_brain_url は **宣言しない**(two-way door の決定 D4・記録 = card ki-f486a3cbb6a3 のスレッド)。
+#   この鍵の読み手は cluster_check.forwarded_env ちょうどで、呼び手が k3s の Job を立てて検査を走らせる
+#   形を通る repo だけが要る。要るようになったら 1 行足す。
+#
+# ⚠ この repo の日次の全体検証は 2026-08-27 の operator 裁定で停止中(herdr-hud
+#   deploy/periodic/jobs.json の land-verify-orch = blocked・理由 = pod に作業コピーが無い +
+#   「点検は開発完了まで止めたまま」)。⇒ 受付を実際に通るのは、人が手で撃つ焦点の検査と着地の窓
+#   (mode = "focus" なので [gate.tiers] も [gate].full も撃たない)ちょうど。日次が戻った日に
+#   この註を読み直すこと(戻ると gate.full の 7 本が日次の許可の札で走る)。
+# ⚠ 残り(この便では直さない): gate.full は remote_check で zeus へ送って走るが、remote_check は
+#   許可の env を運ばない。7 本は広くないので断られないが、窓の台帳が zeus 側で書けない拍は
+#   `window-unverifiable` で許可が要る形になる(受付の judge の 2 番目の枝)。
