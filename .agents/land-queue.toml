@@ -84,7 +84,14 @@ stable_branch = "stable"
 #   posted → 次の走の読み直しで refused(held: sender-is-not-operator-or-conversation)に変わる。台帳が「届かなかった」を
 #   正しく名乗る形が先で、会話の手番に載せるのは ACP 側の別の決定。
 # 戻し方 = この 1 行を消す(two-way door・決定の記録 = card ki-03598df36cce のスレッド 2026-09-19)。
-verify_notice_to = ["c-D6AFCPB1VRMNTVN9ECSZMCAS3T"]
+# 2026-09-26 差し替え(operator 2026-09-26 逐語 "those hosyu unyou issues doesnt look like stuff we care really" /
+#   "yes turn off if you found the cause")— 旧値 c-D6AFCPB1VRMNTVN9ECSZMCAS3T(#467 の調査の会話・担い手 agent-job)は
+#   この報せで目を覚まし、自分の判断で受付へ調査を依頼し、子の会話が GitHub に保守の issue を起票していた。
+#   新値は operator の画面の会話(担い手 pane)— 報せは郵便としては配られず(台帳の結末 = refused)、赤は
+#   land-partition の verify 欄に残る。手番は立たない。日次の検証そのものは止めない(宛先の門 verify_notice_gate は
+#   綴りだけを見るので通る)。
+# 戻し方 = この行の値を旧値 ["c-D6AFCPB1VRMNTVN9ECSZMCAS3T"] へ戻す(two-way door)。
+verify_notice_to = ["c-METTP7XQZF6E5N4JSM1A1PATFZ"]
 
 [test-admission]
 # 広い test 走行の受付(法 ADR-DOTFILES-027 R-9c56a2dd broad-test-runs-need-an-explicit-grant・
