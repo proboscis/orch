@@ -35,6 +35,11 @@ timeout_s = 3600
 # ai land verify が使う — launchd 便は別途敷設)+ stable 昇格 + fix-forward。
 # 先例 = dotfiles / herdr-hud D568 / ACP / doeff(2026-08-17 同日)。
 mode = "focus"
+# 着地の門 = git の衝突の印の走査ちょうど(agora-redesign #726・2026-09-28 c2-w25)。merge-queue の窓は
+#   focus_paths_runner の宣言が無い区画を開かないので、agora-controllers / herdr-hud と同じ 1 行を置く。
+#   行頭の `<<<<<<< ` / `>>>>>>> ` の一致なし(git grep の rc 1)だけを通し、一致(rc 0)と git の失敗(rc 128)は止める。
+#   テストは足さない(門は merge の力学のみ)。戻すには この行と [policy] runner を消す。
+focus_paths_runner = '''git grep -n -E '^(<<<<<<< |>>>>>>> )' -- . && exit 1 || test $? -eq 1'''
 # 方策宣言そのものへの変更だけは常時 full battery(自己参照の fail-closed)
 # ⚠ 2026-08-17 operator 逐語「全量検査を無効にしてくれ」: full_paths を空に —
 # 着地の窓はいかなる path でも全量検査(gate.full)を走らせない。gate.full の
@@ -66,6 +71,10 @@ join_s = 60
 
 [policy]
 run_executors = ["landrun-orch", "landrun-rollout", "machine"]
+# 着地の窓を回すのは merge-queue の Deployment `merge-queue-land`(ns herdr-hud)— agora-redesign #726・2026-09-28 c2-w25。
+#   押す鍵 = Secret land-key-orch(GitHub の deploy key `agora-1-pod (write) land-runner orch`・merge-queue の deploy/land が載せる)。
+#   戻し方 = この行を消す(無宣言 = mac の窓へ戻る・1 行の便)。
+runner = "merge-queue"
 auto_run = true
 urgent_slots = 1
 push = "origin"
