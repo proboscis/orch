@@ -70,6 +70,13 @@ join_s = 60
 ".agents/land-queue.toml" = "true"
 
 [policy]
+# 着地する commit の本文へ、依頼が属する追跡先の issue への参照 `Refs: proboscis/agora-redesign#N` を着地の窓が足す
+#   (merge-queue の窓・agora-redesign #2428)。issue の画面から、その issue で入った差分を開けるようにするため。
+#   番号 = 依頼の題が最初に指す番号(`agora-redesign #N` の明記が先)。
+#   裸の `#N` は読まない(この repo は自分の issue / PR の番号を題に書くので、取り違えない)。
+#   戻し方 = この 2 行と註を消す(two-way door・決めた記録 = agora-redesign #2428 の comment)。
+issue_tracker = "proboscis/agora-redesign"
+issue_tracker_bare = false
 run_executors = ["landrun-orch", "landrun-rollout", "machine"]
 # 着地の窓を回すのは merge-queue の Deployment `merge-queue-land`(ns herdr-hud)— agora-redesign #726・2026-09-28 c2-w25。
 #   押す鍵 = Secret land-key-orch(GitHub の deploy key `agora-1-pod (write) land-runner orch`・merge-queue の deploy/land が載せる)。
