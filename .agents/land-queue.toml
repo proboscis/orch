@@ -24,7 +24,13 @@ base = "main"
 # 退役の根拠(2026-08-18 実測・zeus・.git を含まない tree・go clean -testcache 後):
 # go test 20 package 全部 ok(internal/daemon 17.0s / internal/pr 0.045s /
 # test/integration 13.3s)・make lint 通過・docs/adr 7 passed・rc=0。
-full = "python3 $HOME/dotfiles/agentcli/src/agentcli/remote_check.py --node zeus --tree . --label orch-gate-full --sync-timeout 600 --run-timeout 1800 --fallback-local -- sh -c 'go build ./... && make test && make lint && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q'"
+# 2026-10-07(agora-redesign #3879・cisco-c8 の決め・戻せる): 全部の処理ステージに欄 pytest(pytest の session を走らせるか)を書く。
+# 日次の全体検証は true の処理ステージで session が 1 本も答えなければ、カバレッジの欠けに数える。
+# 1 本の文字列の宣言は欄を書けないので、同じ名 full・同じ命令の処理ステージ 1 つの列に書き直した(記録の名は変わらない)。
+# true = full(make test の後に uv run pytest docs/adr を呼ぶ・走った日次で session の行 1 本)。戻すには列を元の 1 本の文字列へ戻す。
+full = [
+  { name = "full", run = "python3 $HOME/dotfiles/agentcli/src/agentcli/remote_check.py --node zeus --tree . --label orch-gate-full --sync-timeout 600 --run-timeout 1800 --fallback-local -- sh -c 'go build ./... && make test && make lint && PYTHONUNBUFFERED=1 uv run pytest docs/adr -q'", pytest = true },
+]
 # 遠隔の最悪(sync 600 + run 1800)を包む。全走が遠隔 1 段に戻ったので Mac 側の
 # 後段ぶんは要らないが、余裕は残す(zeus の実測は全部で 2 分未満)。
 # 2026-10-02(agora-redesign #2589): 日次の全体検証の予算を別の鍵 full_timeout_s へ移した(merge-queue L195 で予算と窓の門の上限を別の
